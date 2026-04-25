@@ -142,6 +142,22 @@ def resolve_inbox_path(cfg: Dict[str, Any], date: str | None = None) -> str:
     return f"{daily_dir}/{day}.md"
 
 
+def _frontmatter(properties: Dict[str, Any]) -> str:
+    """Build Obsidian-compatible YAML frontmatter block."""
+    lines = ["---"]
+    for key, value in properties.items():
+        if isinstance(value, list):
+            lines.append(f"{key}: [{', '.join(value)}]")
+        elif isinstance(value, bool):
+            lines.append(f"{key}: {'true' if value else 'false'}")
+        elif isinstance(value, str) and (value == "" or value.startswith(("@", "&", "*", "!", "%")) or ":" in value):
+            lines.append(f'{key}: "{value}"')
+        else:
+            lines.append(f"{key}: {value}")
+    lines.append("---")
+    return "\n".join(lines) + "\n"
+
+
 def _ensure_workspace_files(cfg: Dict[str, Any]) -> None:
     workspace_files = [
         ("inbox", str(cfg["inbox_path"])),
@@ -161,11 +177,15 @@ def _ensure_workspace_files(cfg: Dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():
             if kind == "inbox":
-                content = "# ofício inbox\n\n- [ ] @hermes id:example\n  Replace this example with a request, or delete it.\n"
+                fm = _frontmatter({"tags": ["oficio/inbox"], "type": "inbox"})
+                content = fm + "# ofício inbox\n\n- [ ] @hermes id:example\n  Replace this example with a request, or delete it.\n"
             elif kind == "log":
-                content = f"# ofício log · {Path(rel_path).stem}\n"
+                day = Path(rel_path).stem
+                fm = _frontmatter({"tags": ["oficio/log"], "type": "log", "date": day})
+                content = fm + f"# ofício log · {day}\n"
             elif kind == "legacy_log":
-                content = "# ofício log\n"
+                fm = _frontmatter({"tags": ["oficio/log"], "type": "log"})
+                content = fm + "# ofício log\n"
             else:
                 content = ""
             path.write_text(content)

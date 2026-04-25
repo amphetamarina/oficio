@@ -139,7 +139,16 @@ def _read_or_new_log(cfg: Dict[str, Any], path: str) -> str:
         return _read_note_with_fallback(cfg, path)
     except Exception:
         title = Path(path).stem
-        return f"# ofício log · {title}\n"
+        date_str = title if title != "log" else ""
+        try:
+            from .oficio_config import _frontmatter  # type: ignore[import]
+        except Exception:
+            from oficio_config import _frontmatter  # type: ignore[import]
+        if date_str:
+            fm = _frontmatter({"tags": ["oficio/log"], "type": "log", "date": date_str})
+        else:
+            fm = _frontmatter({"tags": ["oficio/log"], "type": "log"})
+        return fm + f"# ofício log · {title}\n"
 
 
 def _handle_scan(args: Dict[str, Any], **kw: Any) -> str:
@@ -264,7 +273,7 @@ def _session_start_context(*args: Any, **kwargs: Any) -> Dict[str, Any] | None:
         return None
     ids = [str(item["id"]) for item in pending]
     return {
-        "context": f"ofício has {len(pending)} pending request(s) in {path}: {', '.join(ids)}. informational only; no request was executed.",
+        "context": f"ofício: {len(pending)} pending request(s) in {path} — {', '.join(ids)}. Proactively inform the user and ask if they want these executed now.",
         "oficio": {"pending_count": len(pending), "path": path, "ids": ids},
     }
 

@@ -65,10 +65,12 @@ def test_session_start_context_reports_pending_requests_without_mutating(tmp_pat
         rendered = json.dumps(context, ensure_ascii=False)
     else:
         rendered = str(context)
+    assert "ofício" in rendered
     assert "2" in rendered
     assert inbox_path in rendered
     assert "first" in rendered
     assert "second" in rendered
+    assert "Proactively inform" in rendered or "inform" in rendered.lower()
     assert inbox.read_text() == original
 
 

@@ -82,9 +82,14 @@ def test_load_config_creates_file_with_defaults_and_resolved_workspace_files(tmp
     inbox = vault_abspath(cfg, resolve_inbox_path(cfg))
     log = vault_abspath(cfg, resolve_log_path(cfg))
     assert inbox.exists()
-    assert inbox.read_text().startswith("# ofício inbox")
+    inbox_text = inbox.read_text()
+    assert "ofício inbox" in inbox_text
+    assert "tags:" in inbox_text
     assert log.exists()
-    assert log.read_text().startswith("# ofício log · ")
+    log_text = log.read_text()
+    assert "ofício log" in log_text
+    assert "tags:" in log_text
+    assert "date:" in log_text
 
     reloaded = load_config()
     assert reloaded["pending_marker"] == "@hermes"

@@ -1,6 +1,6 @@
 # ofício
 
-<img src="imagens/logo.png" width="100" />
+<img src="imagens/logo.png" width="600" />
 
 `python · 0.0.1 · experimental`
 

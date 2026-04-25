@@ -2,23 +2,34 @@
 
 <img src="imagens/logo.png" width="600" />
 
-`python · 0.0.1 · experimental`
+`0.0.2 · experimental`
 
-um ofício pede poucos instrumentos bem escolhidos e um único banco onde tudo está ao alcance da mão. Este repositório reúne uma camada fina sobre Obsidian, um lançador minimalista, um pequeno despachante de agentes e um conjunto de convenções de teclado, todos derivados da Humane Interface de Jef Raskin. Não pretende ser catedral nem sistema operacional. É a oficina onde se trabalha bem.
+um ofício pede poucos instrumentos bem escolhidos e um único banco onde tudo está ao alcance da mão. este repositório descreve uma camada fina sobre um cofre do Obsidian, alguns ganchos para agentes e um conjunto de convenções de trabalho, todos derivados da Humane Interface de Jef Raskin. não pretende ser catedral nem sistema operacional. é a oficina onde se trabalha bem.
 
 
 ## raiz
 
 Jef Raskin iniciou o projeto Macintosh em 1979, foi vencido pela interface gráfica vitoriana que se seguiu, e passou os vinte e cinco anos seguintes desenhando interfaces que respeitassem o tempo cognitivo de quem as usa, em máquinas como Swyft, Canon Cat e o ambiente Archy.
 
-a tese dele cabe em uma linha: A interface deve minimizar o intervalo entre intenção e execução sem cobrar tributo de atenção. 
+a tese dele cabe em uma linha: a interface deve minimizar o intervalo entre intenção e execução sem cobrar tributo de atenção.
 
-o ofício toma essa tese como projeto e a aplica a um cotidiano comum, de quem escreve, lê e conversa com agentes ao longo do dia, em qualquer Unix moderno, sem reescrever o sistema operacional.
+o ofício toma essa tese como projeto e a aplica a um cotidiano comum, de quem escreve, lê e conversa com agentes ao longo do dia. o ponto de partida não é uma pilha de ferramentas: é um cofre do Obsidian, sincronizado, disponível no desktop e no celular, onde o texto vive antes, durante e depois da ação.
+
+
+## arquitetura
+
+<img src="imagens/arquitetura.png" width="900" />
+
+três peças, todas leves. no centro, o cofre do Obsidian: espaço de escrita, leitura, comando e memória. de um lado, agentes como Codex e Pi, que leem notas, respondem a intenções registradas no cofre e escrevem de volta quando precisam produzir texto, registrar andamento ou deixar rastro. do outro, a camada mínima que observa mudanças de sincronização e aciona os ganchos correspondentes.
+
+o cofre permanece a única fonte de verdade. não há caixa de entrada paralela, painel de controle separado nem banco oculto. o que a usuária escreve no Obsidian é o que os agentes veem. o que os agentes fazem volta ao Obsidian como nota, alteração ou log. assume-se que persistência, salvamento e sincronização já pertencem ao próprio Obsidian: autossave e sync fecham o ciclo.
+
+os únicos scripts necessários são ganchos pequenos: um jeito de um agente reconhecer pedidos no cofre, um jeito de reagir quando uma sincronização traz mudança nova, e um jeito de escrever respostas ou registros no lugar combinado. o resto é convenção de texto.
 
 
 ## princípios
 
-cada princípio entra com a definição raskiniana e a decisão de projeto correspondente. A ordem é a do impacto sentido no corpo, não a da hierarquia teórica.
+cada princípio entra com a definição raskiniana e a decisão de projeto correspondente. a ordem é a do impacto sentido no corpo, não a da hierarquia teórica.
 
 ### locus de atenção
 
@@ -27,10 +38,10 @@ cada princípio entra com a definição raskiniana e a decisão de projeto corre
 _a interface deve respeitar o ponto onde o cuidado está pousado e nunca arrancá-lo de lá sem motivo digno._
 
 #### decisão
-- Obsidian em tela cheia, no espaço de trabalho zero, sem barra de ícones lateral, com cromia reduzida. 
-- notificações de sistema desligadas. O painel do gerenciador de janelas carrega só bateria, rede e relógio.
-- tudo o mais que a usuária queira saber (carga, fila dos agentes, estado do disco) entra como nota viva, lida via Dataview a partir de um YAML que um pequeno daemon atualiza a cada poucos segundos. 
-- **nada pisca, nada balança, nada interrompe. Olha-se quando se quer.**
+- Obsidian é o ponto de partida da interface.
+- o cofre concentra escrita, leitura, pedidos a agentes, respostas e registros.
+- agentes não disputam foco com janelas próprias. eles leem o cofre, reagem quando há algo a fazer e escrevem de volta quando a resposta pertence ao trabalho.
+- **nada pisca, nada balança, nada interrompe. olha-se quando se quer.**
 
 ### sem modos
 
@@ -40,64 +51,68 @@ _a mesma tecla deve sempre fazer a mesma coisa, em qualquer estado do sistema._
 
 
 #### decisão
-- o modo Vim do Obsidian permanece desligado por padrão.
-- Caps Lock vira Esc no nível do teclado, antes mesmo do compositor saber que ele existe; o que era a tecla mais ofensiva do teclado, um modo persistente esperando ser apertado por engano, vira gesto de cancelar, que é momentâneo por natureza.
-- a tabela completa de atalhos vive em `Hotkeys.md` no cofre, gerada a partir da configuração real, para que a previsibilidade seja auditável e legível como o resto do trabalho.
+- o Obsidian fica o mais próximo possível de texto direto.
+- menos plugins é melhor. só entra extensão quando ela reduz atrito real sem criar outro lugar para lembrar.
+- pedidos a agentes são notas ou trechos de notas, não estados escondidos de uma interface auxiliar.
+- a tabela de atalhos vive no próprio cofre, em `Hotkeys.md`, para que a previsibilidade seja auditável e legível como o resto do trabalho.
 
 ### quasimodos
 
 <img src="imagens/quasimodos.png" width="400" />
 
-_estados que existem somente enquanto a tecla está pressionada são aceitáveis. O corpo sente fisicamente que está num estado especial, então o estado não fica esquecido em segundo plano._
+_estados que existem somente enquanto a tecla está pressionada são aceitáveis. o corpo sente fisicamente que está num estado especial, então o estado não fica esquecido em segundo plano._
 
 #### decisão
-- a invocação dos agentes acontece por quasimodo. Mantém-se um modificador, surge um campo de prompt, solta-se a tecla e o campo desaparece junto com o estado.
+- a invocação explícita de agentes pode acontecer por gesto curto, mas o pedido resultante vira texto no cofre.
+- o estado especial termina no gesto. o acompanhamento depois disso é nota, log ou resposta escrita.
 - nenhum modo dura mais que o gesto que o sustenta.
 
 ### monotonia
 
 <img src="imagens/monotonia.png" width="400" />
 
-_uma única maneira de fazer cada coisa. Reduz ruído de escolha, fortalece habituação, devolve para o dia o tempo que múltiplos caminhos consomem._
+_uma única maneira de fazer cada coisa. reduz ruído de escolha, fortalece habituação, devolve para o dia o tempo que múltiplos caminhos consomem._
 
 #### decisão
-- um lançador, uma paleta de comandos, um campo de busca, um caminho para invocar agente.
-- Quando há tentação de oferecer "também por menu, também por clique", o ofício recusa. Caminho duplicado é caminho a manter.
+- um cofre, uma fonte de verdade, um lugar para pedir trabalho.
+- agentes podem ser muitos, mas o protocolo é o mesmo: ler Obsidian, reagir, escrever Obsidian.
+- quando há tentação de oferecer "também por painel, também por aplicativo, também por chat separado", o ofício recusa. caminho duplicado é caminho a manter.
 
 ### LEAP
 
 <img src="imagens/LEAP.png" width="400" />
 
-_busca incremental como navegação primária, no lugar da rolagem e do clique: duas teclas dedicadas levam o cursor a qualquer ponto de qualquer documento, sem mudança de janela e sem modo._
+_busca incremental como navegação primária, no lugar da rolagem e do clique: poucas teclas levam o cursor a qualquer ponto de qualquer documento, sem mudança de janela e sem modo._
 
 #### decisão
-- três camadas concêntricas de busca, todas vivas e imediatas.
-- dentro do Obsidian, Omnisearch indexa o cofre inteiro com correspondência aproximada incremental, e a busca local nativa cobre o documento atual.
-- no sistema, um lançador qualquer que respeite teclado e indexe arquivos abre notas via `obsidian://open?vault=...&file=...`.
-- Sobre links visíveis, Jump to Link expõe marcadores de atalho em quasimodo, no espírito do que o vimium fez para a web.
-- Em qualquer ponto do ofício, três a cinco teclas chegam ao destino.
+- a navegação primária é a busca do próprio Obsidian: título, arquivo, link e texto.
+- o cofre deve ser organizado para ser encontrado, não decorado. bons nomes, links explícitos e notas pequenas valem mais que indexadores pesados.
+- não há dependência de plugin de busca adicional. se a busca nativa e a estrutura do cofre bastam, nada mais entra.
+- em qualquer ponto do ofício, poucas teclas chegam ao destino.
 
 ### desfazer universal
 
 <img src="imagens/desfazer_universal.png" width="400" />
 
-_toda ação é reversível. Nenhum diálogo modal pedindo confirmação._
+_toda ação é reversível. nenhum diálogo modal pedindo confirmação._
 
 #### decisão
-- o cofre inteiro vive sob `jj`, escolhido por tratar o desfazer como cidadão de primeira classe.
-- a cópia de trabalho é versionada a cada operação, e o log de operações preserva não apenas o conteúdo dos arquivos como também os movimentos do próprio sistema de versão; `jj undo` reverte o último movimento, qualquer que tenha sido.
-- `oficio undo` é uma camada fina sobre `jj op log` que apresenta as operações recentes no lançador para reversão interativa. O sistema confia que a usuária vai querer desfazer, então não pergunta antes.
+- o primeiro desfazer é o do próprio Obsidian.
+- mudanças de agentes são registradas como texto no cofre: antes de alterar, durante a execução ou depois, conforme o tipo de tarefa exigir.
+- a reversibilidade nasce de notas legíveis, histórico de sincronização e logs simples, não de confirmação preventiva.
+- o sistema confia que a usuária vai querer desfazer, então evita perguntar antes.
 
 ### texto eterno
 
 <img src="imagens/texto_eterno.png" width="400" />
 
-_salvar e carregar são vestígios de disquete. O documento existe e persiste sempre._
+_salvar e carregar são vestígios de disquete. o documento existe e persiste sempre._
 
 #### decisão
-- o autossave do Obsidian permanece ligado
-- os agentes escrevem direto em arquivos do cofre sem buffer próprio, e o jj acima fecha o ciclo.
-- em nenhum lugar há "deseja salvar antes de sair?". O texto está sempre salvo; o que pode mudar é apenas qual versão se está enxergando.
+- o autossave do Obsidian permanece ligado.
+- o sync do cofre é assumido como parte do ambiente, inclusive entre desktop e mobile.
+- agentes escrevem no cofre quando precisam persistir resultado ou registrar ação. não mantêm uma verdade própria esperando exportação.
+- em nenhum lugar há "deseja salvar antes de sair?". o texto está sempre salvo; o que pode mudar é apenas qual versão se está enxergando.
 
 ### sem aplicativos, só documentos
 
@@ -107,43 +122,46 @@ _o sistema é um espaço contínuo de texto onde comandos agem sobre seleção._
 
 #### decisão
 - o cofre é o sistema.
-- ferramentas externas (terminal, navegador) entram em modo retrátil, fazem o que precisam fazer e somem sem ocupar tela.
-- qualquer compositor decente faz o trabalho com uma única regra: Obsidian sempre maximizado, retráteis sempre voláteis. A gravidade volta para o texto.
+- um pedido a agente é documento: uma seção, uma nota, uma tarefa marcada, um bloco com contexto suficiente.
+- uma resposta de agente também é documento: texto revisável, linkável, apagável, movível.
+- a gravidade volta para o texto.
 
 ### CALC
 
 <img src="imagens/CALC.png" width="400" />
 
-_aplicação direta do princípio anterior. Uma seleção contendo expressão matemática vira número no mesmo lugar com uma única tecla, sem janela auxiliar e sem mudança de contexto, porque ferramenta separada para calcular já é aplicativo distinto, contra a regra._
+_aplicação direta do princípio anterior. uma seleção contendo expressão matemática vira número no mesmo lugar com uma única tecla, sem janela auxiliar e sem mudança de contexto, porque ferramenta separada para calcular já é aplicativo distinto, contra a regra._
 
 #### decisão
-- um pequeno script de usuária (Templater no Obsidian, ou gancho de shell no editor de escolha) recebe a seleção, manda para uma calculadora simbólica (qalc é um bom padrão) e troca o trecho pelo resultado. Cobre matemática, conversões de unidade e datas. Sem painel auxiliar, sem barra lateral.
+- transformações pequenas acontecem no próprio texto.
+- quando um agente ou gancho calcula, resume, reescreve ou classifica, o resultado volta para o trecho ou nota de origem quando isso for o gesto mais simples.
+- sem painel auxiliar, sem barra lateral obrigatória, sem conversa paralela quando o documento basta.
 
 ### habituação e visibilidade
 
 <img src="imagens/habituacao_visibilidade.png" width="400" />
 
-_bons gestos viram automáticos. O efeito de cada ação deve ser visível antes do gesto, e narrável depois._
+_bons gestos viram automáticos. o efeito de cada ação deve ser visível antes do gesto, e narrável depois._
 
 #### decisão
-- a documentação dos atalhos não vive em interface gráfica escondida, vive como nota do cofre, lida e editada como qualquer outra.
-- cada agente registra o que fez num `entrada.md` datado.
-- o sistema é narrável de cima a baixo, e auditar uma decisão é abrir um arquivo, não arqueologia em log binário.
+- a documentação dos atalhos e convenções vive como nota do cofre, lida e editada como qualquer outra.
+- cada agente registra o que fez em notas de log quando a ação precisa de memória.
+- pedidos, respostas, erros e decisões devem ser narráveis por arquivos Markdown, não por arqueologia em estado oculto.
+- auditar uma decisão é abrir uma nota.
 
 
-## arquitetura
+## convenções
 
-quatro peças, todas leves. Obsidian como espaço de trabalho persistente, único processo gráfico que importa. Um lançador minimalista para LEAP de sistema, escolhido pela usuária. Um despachante de agentes em Python que recebe prompts via socket Unix, roteia por prefixo (`/code`, `/pesquisa`, `/livre`) para qualquer agente externo configurável, escreve respostas em arquivos do cofre, e mantém o snapshot do cofre em jj via um monitor de arquivos. E um conjunto de convenções de teclado mais alguns plugins do Obsidian (Omnisearch, Templater, Dataview, Jump to Link) que costuram o resto. O cofre permanece a única fonte de verdade. Os agentes não abrem janelas próprias, não pedem permissão por janela flutuante, não disputam foco.
+o ofício não exige muitos plugins. quanto menos peças entre a intenção e o texto, melhor. o Obsidian precisa abrir o cofre, salvar continuamente, sincronizar e permitir busca suficiente. todo o resto deve justificar sua existência.
 
+agentes são convidados, não centros de comando. Codex pode cuidar de código, Pi pode conversar e amadurecer ideias, outros podem entrar depois. o contrato não muda: ler o cofre, reagir ao que foi pedido, escrever de volta quando houver algo útil a preservar.
 
-## requisitos
-
-qualquer Unix moderno: macOS, Linux, FreeBSD, OpenBSD. Um gerenciador de janelas que aceite atalhos globais (XFCE, KDE, GNOME, sway, Hyprland, i3 em Linux ou BSD; yabai com skhd ou o próprio Aqua em macOS). Obsidian. jj. Um lançador minimalista que respeite teclado (rofi, tofi, wofi, anyrun em Linux ou BSD; Raycast ou Alfred em macOS; fzf em terminal serve em qualquer Unix). Um terminal com aparição e sumiço por atalho (foot, kitty ou alacritty mais tdrop em X11; scratchpad de sway no Wayland; janela de atalho do iTerm2 ou Hammerspoon em macOS). Python 3.11 ou superior para o despachante. fswatch para o snapshot contínuo. Caps Lock remapeado para Esc no nível do teclado, via xkb em Linux ou BSD, via Karabiner-Elements em macOS. Roda em hardware antigo sem reclamar.
+sincronização é evento de trabalho. quando uma mudança chega ao cofre, um gancho pode identificar notas pendentes, tarefas marcadas ou blocos destinados a agentes e encaminhar a reação adequada. a arquitetura não depende de presença contínua diante da tela: uma nota escrita no celular deve poder virar trabalho no desktop, e uma resposta produzida depois deve voltar ao mesmo cofre.
 
 
 ## estado
 
-Versão 0.0.1. Em uso pessoal, ainda em estado exploratório. As convenções estão estabilizadas; o despachante de agentes está em forma cedo. Contribuições bem-vindas, com a ressalva de que este repositório existe para servir um modo de trabalhar, não para virar produto. Antes de abrir chamado propondo recurso, pergunte se o recurso respeita um dos princípios acima. Se ele existe para conforto de catálogo, provavelmente não vai entrar.
+versão 0.0.2. em uso pessoal, ainda em estado exploratório. as convenções estão estabilizando em torno de uma tese simples: Obsidian é a mesa, o cofre é a memória, agentes são mãos auxiliares. contribuições bem-vindas, com a ressalva de que este repositório existe para servir um modo de trabalhar, não para virar produto. antes de abrir chamado propondo recurso, pergunte se o recurso respeita um dos princípios acima. se ele existe para conforto de catálogo, provavelmente não vai entrar.
 
 
 ## licença

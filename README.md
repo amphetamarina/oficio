@@ -1,5 +1,7 @@
 # ofício
 
+<img src="imagens/logo.png" width="600" />
+
 `0.0.3 · experimental`
 
 um ofício pede poucos instrumentos bem escolhidos e um único banco onde tudo está ao alcance da mão. este repositório contém um plugin Hermes que dá a agentes mãos explícitas para ler, escanear, marcar e escrever notas num cofre do Obsidian. não é catedral nem sistema operacional — é a oficina onde se trabalha bem.
@@ -11,6 +13,8 @@ Jef Raskin passou a vida desenhando interfaces que respeitassem o tempo cognitiv
 o ofício aplica essa tese a um cotidiano comum: quem escreve, lê e conversa com agentes ao longo do dia. o ponto de partida é um cofre do Obsidian, sincronizado, disponível no desktop e no celular, onde o texto vive antes, durante e depois da ação.
 
 ## arquitetura
+
+<img src="imagens/arquitetura.png" width="900" />
 
 três camadas, todas leves:
 
@@ -25,46 +29,81 @@ não há painel separado, banco oculto nem caixa de entrada paralela. o que a us
 cada princípio raskiniano vira decisão concreta de projeto. a ordem é a do impacto no corpo, não a da hierarquia.
 
 ### locus de atenção
+
+<img src="imagens/locus_atencao.png" width="500" />
+
 _a interface respeita o foco e nunca o arranca sem motivo._
 
 > Obsidian é o ponto de partida. agentes não disputam foco: leem o cofre quando há pedido, escrevem de volta quando a resposta pertence ao trabalho. **nada pisca, nada interrompe. olha-se quando se quer.**
 
 ### sem modos
+
+<img src="imagens/sem_modos.png" width="400" />
+
 _a mesma tecla faz sempre a mesma coisa._
 
 > o cofre fica o mais próximo possível de texto direto. pedidos são notas ou trechos de notas, não estados escondidos. a tabela de atalhos vive em `Hotkeys.md`.
 
 ### quasimodos
+
+<img src="imagens/quasimodos.png" width="400" />
+
 _estados que existem só enquanto a tecla está pressionada são aceitáveis._
 
 > a invocação de agentes pode ser um gesto curto, mas o resultado vira texto no cofre. o estado termina com o gesto.
 
 ### monotonia
+
+<img src="imagens/monotonia.png" width="400" />
+
 _uma única maneira de fazer cada coisa._
 
 > um cofre, uma fonte de verdade, um lugar para pedir trabalho: `agent/oficio/inbox.md`. agentes podem ser muitos; o protocolo é o mesmo.
 
 ### LEAP
+
+<img src="imagens/LEAP.png" width="400" />
+
 _busca incremental como navegação primária._
 
 > a navegação é a busca nativa do Obsidian. bons nomes e links explícitos valem mais que indexadores pesados.
 
 ### desfazer universal
+
+<img src="imagens/desfazer_universal.png" width="400" />
+
 _toda ação é reversível. sem diálogos de confirmação._
 
 > o desfazer é o do Obsidian. ações de agentes são registradas como texto no cofre — logs diários, metadados de conclusão e marcas de falha tornam tudo auditável.
 
 ### texto eterno
+
+<img src="imagens/texto_eterno.png" width="400" />
+
 _salvar e carregar são vestígios de disquete._
 
 > autossave ligado, sync assumido. agentes escrevem no cofre; não mantêm verdade própria esperando exportação.
 
 ### sem aplicativos, só documentos
+
+<img src="imagens/apenas_documentos.png" width="400" />
+
 _o sistema é um espaço contínuo de texto._
 
 > o cofre é o sistema. um pedido a agente é documento. uma resposta de agente também é. a gravidade volta para o texto.
 
+### CALC
+
+<img src="imagens/CALC.png" width="400" />
+
+_aplicação direta do princípio anterior: uma seleção contendo expressão vira resultado no mesmo lugar com uma única tecla, sem janela auxiliar._
+
+> transformações pequenas acontecem no próprio texto. quando um agente resume, calcula, reescreve ou classifica, o resultado volta ao trecho de origem. sem painel auxiliar, sem conversa paralela quando o documento basta. **(ainda não implementado — ver "o que ainda não existe")**
+
 ### habituação e visibilidade
+
+<img src="imagens/habituacao_visibilidade.png" width="400" />
+
 _bons gestos viram automáticos. o efeito de cada ação deve ser visível antes e narrável depois._
 
 > documentação de atalhos e convenções vive como nota do cofre. logs diários registram o que cada agente fez. auditar uma decisão é abrir uma nota.

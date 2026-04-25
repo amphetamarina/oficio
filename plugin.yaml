@@ -8,4 +8,9 @@ provides_tools:
   - oficio_scan
   - oficio_read
   - oficio_append
-provides_hooks: []
+  - oficio_complete
+  - oficio_fail
+  - oficio_replace
+  - oficio_today
+provides_hooks:
+  - on_session_start

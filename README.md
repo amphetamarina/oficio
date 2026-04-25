@@ -159,6 +159,46 @@ agentes são convidados, não centros de comando. Codex pode cuidar de código, 
 sincronização é evento de trabalho. quando uma mudança chega ao cofre, um gancho pode identificar notas pendentes, tarefas marcadas ou blocos destinados a agentes e encaminhar a reação adequada. a arquitetura não depende de presença contínua diante da tela: uma nota escrita no celular deve poder virar trabalho no desktop, e uma resposta produzida depois deve voltar ao mesmo cofre.
 
 
+## plugin Hermes
+
+hoje o ofício existe também como um plugin pequeno do Hermes. ele não substitui o cofre, não cria painel e não mantém banco escondido. ele só dá ao agente mãos explícitas para ler, escanear, marcar e escrever notas.
+
+ferramentas:
+
+- `oficio_scan`: encontra pedidos `- [ ] @hermes id:...`.
+- `oficio_complete`: marca um pedido como concluído e registra no log diário.
+- `oficio_fail`: marca falha sem esconder o erro.
+- `oficio_read`, `oficio_append`, `oficio_replace`: operações diretas sobre notas do cofre.
+- `oficio_today`: mostra quais arquivos de inbox e log estão valendo hoje.
+
+os logs diários vivem em `agent/oficio/log/daily/YYYY-MM-DD.md`. o pedido continua tendo um lugar canônico: `agent/oficio/inbox.md`, a menos que a configuração escolha uma caixa diária em `agent/oficio/inbox/daily/YYYY-MM-DD.md`. o caminho antigo `agent/oficio/log.md` continua existindo por compatibilidade, mas as novas anotações vão para o log diário por padrão.
+
+no começo de uma sessão, o plugin pode registrar um contexto informativo: quantos pedidos pendentes existem, em qual arquivo, e quais ids aparecem ali. esse gancho `on_session_start` não executa pedido, não marca tarefa e não escreve no cofre. ele só informa. se a usuária quiser execução periódica, o lugar certo é um cron visível do Hermes, por exemplo: "a cada 30 minutos, escaneie o inbox do ofício e mostre os pedidos pendentes". não há watcher permanente de filesystem nesta versão.
+
+
+## teste real
+
+1. escreva no Obsidian, em `agent/oficio/inbox.md`:
+
+   ```markdown
+   - [ ] @hermes id:teste-001
+     leia este pedido e registre uma confirmação no log diário.
+   ```
+
+2. no Hermes, peça `/oficio scan` ou chame `oficio_scan`.
+
+3. depois de executar o trabalho, use `oficio_complete` com `id: teste-001` e uma nota curta. se algo falhar, use `oficio_fail` com o erro.
+
+4. confira dois lugares no Obsidian: a caixa de entrada, onde a tarefa virou `[x]`, e o log diário, onde apareceu uma seção `## teste-001` com estado, data, origem e mensagem.
+
+os testes automatizados do plugin rodam com:
+
+```bash
+cd /home/marinarosa/git/oficio
+nix shell nixpkgs#python312 nixpkgs#python312Packages.pytest -c sh -lc 'PYTHONPATH=. pytest -q'
+```
+
+
 ## estado
 
 versão 0.0.2. em uso pessoal, ainda em estado exploratório. as convenções estão estabilizando em torno de uma tese simples: Obsidian é a mesa, o cofre é a memória, agentes são mãos auxiliares. contribuições bem-vindas, com a ressalva de que este repositório existe para servir um modo de trabalhar, não para virar produto. antes de abrir chamado propondo recurso, pergunte se o recurso respeita um dos princípios acima. se ele existe para conforto de catálogo, provavelmente não vai entrar.

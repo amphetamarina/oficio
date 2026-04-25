@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
@@ -27,7 +28,12 @@ def default_config() -> Dict[str, Any]:
         "config_dir": str(config_dir),
         "config_file": str(config_dir / "config.yaml"),
         "inbox_path": "agent/oficio/inbox.md",
+        "inbox_daily_dir": "agent/oficio/inbox/daily",
+        "use_daily_inbox": False,
         "log_path": "agent/oficio/log.md",
+        "log_daily_dir": "agent/oficio/log/daily",
+        "use_daily_log": True,
+        "timezone": "local",
         "memory_file": "agent/MEMORY.md",
         "user_file": "agent/USER.md",
         "soul_file": "agent/SOUL.md",
@@ -75,16 +81,17 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
     return data
 
 
-def load_config() -> Dict[str, Any]:
+def load_config(*, ensure: bool = True) -> Dict[str, Any]:
     cfg = default_config()
     config_dir = Path(cfg["config_dir"]).expanduser()
-    config_dir.mkdir(parents=True, exist_ok=True)
     config_file = config_dir / "config.yaml"
     cfg["config_file"] = str(config_file)
 
     if not config_file.exists():
-        config_file.write_text(_render_simple_yaml(cfg))
-        _ensure_workspace_files(cfg)
+        if ensure:
+            config_dir.mkdir(parents=True, exist_ok=True)
+            config_file.write_text(_render_simple_yaml(cfg))
+            _ensure_workspace_files(cfg)
         return cfg
 
     loaded = _load_yaml(config_file)
@@ -92,25 +99,72 @@ def load_config() -> Dict[str, Any]:
     # Keep config_dir/config_file coherent when OFICIO_CONFIG_DIR overrides.
     cfg["config_dir"] = str(config_dir)
     cfg["config_file"] = str(config_file)
-    _ensure_workspace_files(cfg)
+    if ensure:
+        config_dir.mkdir(parents=True, exist_ok=True)
+        _ensure_workspace_files(cfg)
     return cfg
 
 
 def vault_abspath(cfg: Dict[str, Any], vault_relative_path: str) -> Path:
-    path = Path(vault_relative_path).expanduser()
+    raw = str(vault_relative_path or "").strip()
+    if not raw:
+        raise ValueError("vault-relative path is required")
+    path = Path(raw).expanduser()
     if path.is_absolute():
-        return path
-    return Path(str(cfg["vault_path"])).expanduser() / path
+        raise ValueError("path must be vault-relative")
+    vault = Path(str(cfg["vault_path"])).expanduser().resolve()
+    target = (vault / path).resolve()
+    try:
+        target.relative_to(vault)
+    except ValueError as exc:
+        raise ValueError("path must stay inside the vault") from exc
+    return target
+
+
+def today_string(now: datetime | None = None) -> str:
+    current = now or datetime.now().astimezone()
+    return current.date().isoformat()
+
+
+def resolve_log_path(cfg: Dict[str, Any], date: str | None = None) -> str:
+    if not cfg.get("use_daily_log", True):
+        return str(cfg["log_path"])
+    day = date or today_string()
+    daily_dir = str(cfg.get("log_daily_dir") or "agent/oficio/log/daily").rstrip("/")
+    return f"{daily_dir}/{day}.md"
+
+
+def resolve_inbox_path(cfg: Dict[str, Any], date: str | None = None) -> str:
+    if not cfg.get("use_daily_inbox", False):
+        return str(cfg["inbox_path"])
+    day = date or today_string()
+    daily_dir = str(cfg.get("inbox_daily_dir") or "agent/oficio/inbox/daily").rstrip("/")
+    return f"{daily_dir}/{day}.md"
 
 
 def _ensure_workspace_files(cfg: Dict[str, Any]) -> None:
-    for key in ("inbox_path", "log_path", "memory_file", "user_file", "soul_file"):
-        path = vault_abspath(cfg, str(cfg[key]))
+    workspace_files = [
+        ("inbox", str(cfg["inbox_path"])),
+        ("inbox", resolve_inbox_path(cfg)),
+        ("legacy_log", str(cfg["log_path"])),
+        ("log", resolve_log_path(cfg)),
+        ("plain", str(cfg["memory_file"])),
+        ("plain", str(cfg["user_file"])),
+        ("plain", str(cfg["soul_file"])),
+    ]
+    seen = set()
+    for kind, rel_path in workspace_files:
+        if rel_path in seen:
+            continue
+        seen.add(rel_path)
+        path = vault_abspath(cfg, rel_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():
-            if key == "inbox_path":
+            if kind == "inbox":
                 content = "# ofício inbox\n\n- [ ] @hermes id:example\n  Replace this example with a request, or delete it.\n"
-            elif key == "log_path":
+            elif kind == "log":
+                content = f"# ofício log · {Path(rel_path).stem}\n"
+            elif kind == "legacy_log":
                 content = "# ofício log\n"
             else:
                 content = ""

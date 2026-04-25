@@ -1,6 +1,6 @@
 # ofício
 
-*ambiente humano para texto, pensamento e ferramenta*
+![](logo.png)
 
 `python · 0.0.1 · experimental`
 

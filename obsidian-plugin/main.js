@@ -1,5 +1,6 @@
-const { Plugin, moment } = require('obsidian');
+const { Plugin, Notice } = require('obsidian');
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 
 const DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
@@ -132,27 +133,70 @@ module.exports = class OficioTriggerPlugin extends Plugin {
     }
 
     _triggerHermes(filePath) {
-        const scriptPath = path.join(
-            this.app.vault.adapter.getBasePath(),
-            'agent', 'oficio', 'bin', 'check-and-run-hermes'
-        );
+        const vaultPath = this.app.vault.adapter.getBasePath();
+        const logDir = path.join(vaultPath, 'agent', 'oficio', 'trigger-logs');
+        fs.mkdirSync(logDir, { recursive: true });
 
-        const child = spawn('hermes', [
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const safeFile = filePath.replace(/[^A-Za-z0-9_.-]+/g, '_');
+        const logPath = path.join(logDir, `${stamp}_${safeFile}.log`);
+        const log = fs.createWriteStream(logPath, { flags: 'a' });
+
+        const args = [
             '-z',
             `Scan the ofício vault for pending @hermes requests in ${filePath} and process them.`,
             '--yolo',
             '--accept-hooks'
-        ], {
-            detached: true,
-            stdio: 'ignore',
+        ];
+
+        const writeLog = (message) => {
+            const line = `[${new Date().toISOString()}] ${message}\n`;
+            log.write(line);
+            console.log(`Ofício Trigger: ${message}`);
+        };
+
+        writeLog(`starting Hermes: hermes ${args.map((arg) => JSON.stringify(arg)).join(' ')}`);
+        writeLog(`log file: ${logPath}`);
+
+        const child = spawn('hermes', args, {
+            cwd: vaultPath,
+            stdio: ['ignore', 'pipe', 'pipe'],
             env: { ...process.env },
         });
 
-        child.on('error', (err) => {
-            console.error('Ofício Trigger: failed to spawn Hermes:', err.message);
+        writeLog(`Hermes spawned (pid ${child.pid}) for ${filePath}`);
+        new Notice(`Ofício: Hermes started for ${filePath}`);
+
+        child.stdout.on('data', (data) => {
+            log.write(data);
+            console.log(`Ofício Trigger stdout: ${data.toString().trimEnd()}`);
         });
 
-        child.unref();
-        console.log(`Ofício Trigger: Hermes spawned (pid ${child.pid}) for ${filePath}`);
+        child.stderr.on('data', (data) => {
+            log.write(data);
+            console.error(`Ofício Trigger stderr: ${data.toString().trimEnd()}`);
+        });
+
+        child.on('error', (err) => {
+            writeLog(`failed to spawn Hermes: ${err.message}`);
+            new Notice(`Ofício: failed to spawn Hermes — ${err.message}`, 10000);
+            log.end();
+        });
+
+        child.on('close', (code, signal) => {
+            const ok = code === 0;
+            const result = ok
+                ? `Hermes completed successfully for ${filePath}`
+                : `Hermes failed for ${filePath} (exit ${code}${signal ? `, signal ${signal}` : ''})`;
+            writeLog(result);
+            writeLog(`inspect log: ${logPath}`);
+            log.end();
+
+            if (ok) {
+                new Notice(`Ofício: Hermes completed for ${filePath}`, 8000);
+            } else {
+                new Notice(`Ofício: Hermes failed. See ${path.relative(vaultPath, logPath)}`, 15000);
+            }
+        });
     }
 };

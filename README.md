@@ -2,7 +2,7 @@
 
 <img src="imagens/logo.png" width="600" />
 
-`0.0.7 · experimental`
+`0.1.0 · experimental`
 
 um ofício pede poucos instrumentos bem escolhidos e um único banco onde tudo está ao alcance da mão. este repositório contém um plugin Hermes que dá a agentes mãos explícitas para ler, escanear, marcar e escrever notas num cofre do Obsidian. não é catedral nem sistema operacional — é a oficina onde se trabalha bem.
 
@@ -86,10 +86,13 @@ o plugin Hermes `oficio` expõe onze ferramentas e um gancho de sessão.
 
 ### onde escrever pedidos
 
-dois lugares são escaneados por padrão:
+a daily note do dia é o lugar canônico. escreva `- [ ] @hermes` diretamente na sua daily e o plugin encontra:
 
-1. **`agent/oficio/inbox.md`** — o lugar canônico, sempre escaneado.
-2. **`Daily/YYYY-MM-DD.md`** — sua daily note do Obsidian. escreva `- [ ] @hermes` em qualquer daily e o plugin encontra.
+```markdown
+- [ ] @hermes descreva o que o agente deve fazer.
+```
+
+o inbox (`agent/oficio/inbox.md`) continua suportado para compatibilidade, mas o padrão é a daily note.
 
 ### formato dos pedidos
 
@@ -103,6 +106,32 @@ o `id:` é opcional. se omitido em pedidos escritos à mão no Obsidian, o scan 
 - [ ] @hermes id:meu-pedido
   descreva o que o agente deve fazer.
 ```
+
+### arquitetura daily-note-first (0.1.0)
+
+a partir da versão 0.1.0, o ofício adota a daily note como fonte única de verdade:
+
+- **status em tempo real**: cada pedido `@hermes` na daily note ganha uma linha `Status:` logo abaixo. o agente atualiza esse status durante a sessão (`in-progress`, `completed`, `failed`).
+- **sem logs separados**: o status vive na própria daily note, visível e auditável. ao finalizar, um link clicável aponta para a nota de sessão correspondente.
+- **sessões**: cada execução gera uma nota em `agent/oficio/sessions/session-YYYYMMDD-HHMMSS.md` com o resumo do que foi feito.
+
+```markdown
+- [x] @hermes id:meu-pedido
+  Status: completed - resumo do feito | Session: [[agent/oficio/sessions/session-20260426-153000]]
+  descrição original do pedido.
+```
+
+### plugin Obsidian
+
+o repositório inclui um plugin Obsidian em `obsidian-plugin/` que observa modificações na daily note (com debounce de 5 minutos) e dispara automaticamente uma sessão Hermes quando encontra `- [ ] @hermes` sem `Status:`.
+
+para instalar:
+
+```bash
+cp -r ~/git/oficio/obsidian-plugin ~/Documents/amphetamarina/.obsidian/plugins/oficio-trigger/
+```
+
+e habilite "Ofício Trigger" em Settings → Community plugins.
 
 ### formato dos logs
 
@@ -168,7 +197,7 @@ fluxo real:
 
 ## estado
 
-versão 0.0.7. em uso pessoal, ainda exploratório. as convenções estabilizam em torno de uma tese: **Obsidian é a mesa, o cofre é a memória, agentes são mãos auxiliares.** contribuições bem-vindas. antes de propor recurso, pergunte se ele respeita um dos princípios acima. se existe só para conforto de catálogo, provavelmente não vai entrar.
+versão 0.1.0. em uso pessoal, ainda exploratório. a daily note é o ponto de partida; o agente escreve status nela. as convenções estabilizam em torno de uma tese: **Obsidian é a mesa, o cofre é a memória, agentes são mãos auxiliares.** contribuições bem-vindas. antes de propor recurso, pergunte se ele respeita um dos princípios acima. se existe só para conforto de catálogo, provavelmente não vai entrar.
 
 ## licença
 

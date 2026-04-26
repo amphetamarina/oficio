@@ -35,6 +35,8 @@ def default_config() -> Dict[str, Any]:
         "use_daily_log": True,
         "daily_path": "Daily",
         "scan_daily": True,
+        "scan_inbox": False,
+        "session_log_dir": "agent/oficio/sessions",
         "timezone": "local",
         "memory_file": "agent/MEMORY.md",
         "user_file": "agent/USER.md",

@@ -6,6 +6,7 @@ from oficio_protocol import (
     replace_once,
     start_request_log_entry,
     update_request_log_status,
+    upsert_status_line,
 )
 
 
@@ -142,10 +143,10 @@ Some text without a checkbox item.
 
 
 # ---------------------------------------------------------------------------
-# Mark completed (with explicit IDs)
+# Mark completed (Status-line architecture)
 # ---------------------------------------------------------------------------
 
-def test_mark_request_completed_records_timestamp_and_note():
+def test_mark_request_completed_writes_status_line():
     text = """# Inbox
 
 - [ ] @hermes id:test-1
@@ -160,8 +161,25 @@ def test_mark_request_completed_records_timestamp_and_note():
     )
 
     assert "- [x] @hermes id:test-1" in updated
-    assert "- completed: 2026-04-25T20:00:00-03:00" in updated
-    assert "- note: summary written" in updated
+    assert "Status: completed - summary written" in updated
+
+
+def test_mark_request_completed_with_session_log_includes_link():
+    text = """# Inbox
+
+- [ ] @hermes id:test-1
+  Please summarize [[Note]].
+"""
+
+    updated = mark_request_completed(
+        text,
+        "test-1",
+        "summary written",
+        session_log="agent/oficio/sessions/session-test.md",
+    )
+
+    assert "- [x] @hermes id:test-1" in updated
+    assert "Status: completed - summary written | Session: [[agent/oficio/sessions/session-test.md]]" in updated
 
 
 def test_mark_request_completed_uses_exact_id_not_prefix_match():
@@ -181,9 +199,9 @@ def test_mark_request_completed_uses_exact_id_not_prefix_match():
         timestamp="2026-04-25T20:00:00-03:00",
     )
 
-    assert "- [ ] @hermes id:test-10\n  Please do later thing." in updated
+    assert "- [ ] @hermes id:test-10" in updated
     assert "- [x] @hermes id:test-1" in updated
-    assert "- note: exact one done" in updated
+    assert "Status: completed - exact one done" in updated
 
 
 def test_mark_request_completed_split_line_format():
@@ -201,8 +219,7 @@ def test_mark_request_completed_split_line_format():
     )
 
     assert "- [x] cheque os templates no Obsidian." in updated
-    assert "- completed: 2026-04-25T21:00:00-03:00" in updated
-    assert "- note: templates configurados" in updated
+    assert "Status: completed - templates configurados" in updated
     assert "@hermes id:iterate-001" in updated  # preserved
 
 
@@ -225,8 +242,7 @@ def test_mark_request_completed_with_line_number_injects_auto_id():
     )
 
     assert "- [x] @hermes id:20260425-1" in updated
-    assert "- completed: 2026-04-25T20:00:00-03:00" in updated
-    assert "- note: task done" in updated
+    assert "Status: completed - task done" in updated
 
 
 def test_mark_request_completed_with_line_number_preserves_other_tasks():
@@ -248,6 +264,7 @@ def test_mark_request_completed_with_line_number_preserves_other_tasks():
 
     assert "- [ ] @hermes id:keep-me" in updated  # untouched
     assert "- [x] @hermes id:20260425-2" in updated  # marked + id injected
+    assert "Status: completed - only second marked" in updated
 
 
 def test_mark_request_completed_split_line_with_line_number_injects_auto_id():
@@ -267,15 +284,14 @@ def test_mark_request_completed_split_line_with_line_number_injects_auto_id():
 
     assert "- [x] do something." in updated
     assert "@hermes id:20260425-1" in updated  # injected
-    assert "- completed: 2026-04-25T21:00:00-03:00" in updated
-    assert "- note: done via line" in updated
+    assert "Status: completed - done via line" in updated
 
 
 # ---------------------------------------------------------------------------
-# Mark failed
+# Mark failed (Status-line architecture)
 # ---------------------------------------------------------------------------
 
-def test_mark_request_failed_records_status_timestamp_and_error():
+def test_mark_request_failed_writes_status_line():
     text = """# Inbox
 
 - [ ] @hermes id:test-1
@@ -290,9 +306,7 @@ def test_mark_request_failed_records_status_timestamp_and_error():
     )
 
     assert "- [x] @hermes id:test-1" in updated
-    assert "- status: failed" in updated
-    assert "- failed: 2026-04-25T20:00:00-03:00" in updated
-    assert "- error: note not found" in updated
+    assert "Status: failed - note not found" in updated
 
 
 def test_mark_request_failed_split_line_format():
@@ -310,9 +324,7 @@ def test_mark_request_failed_split_line_format():
     )
 
     assert "- [x] cheque os templates no Obsidian." in updated
-    assert "- status: failed" in updated
-    assert "- failed: 2026-04-25T21:00:00-03:00" in updated
-    assert "- error: templates folder not found" in updated
+    assert "Status: failed - templates folder not found" in updated
     assert "@hermes id:iterate-001" in updated  # preserved
 
 
@@ -331,8 +343,7 @@ def test_mark_request_failed_with_line_number_injects_auto_id():
     )
 
     assert "- [x] @hermes id:20260425-1" in updated
-    assert "- status: failed" in updated
-    assert "- error: something broke" in updated
+    assert "Status: failed - something broke" in updated
 
 
 # ---------------------------------------------------------------------------
@@ -406,7 +417,94 @@ def test_replace_once_rejects_empty_old_text():
 
 
 # ---------------------------------------------------------------------------
-# Log entries
+# Status line
+# ---------------------------------------------------------------------------
+
+def test_upsert_status_line_adds_to_standard_format():
+    text = """# Inbox
+
+- [ ] @hermes id:test-1
+  Please summarize [[Note]].
+"""
+
+    updated = upsert_status_line(text, "test-1", "in-progress - working")
+
+    assert "Status: in-progress - working" in updated
+    assert "- [ ] @hermes id:test-1" in updated  # checkbox unchanged
+
+
+def test_upsert_status_line_updates_existing():
+    text = """# Inbox
+
+- [ ] @hermes id:test-1
+  Status: pending - waiting
+  Please summarize [[Note]].
+"""
+
+    updated = upsert_status_line(text, "test-1", "in-progress - doing it")
+
+    assert "Status: in-progress - doing it" in updated
+    assert "Status: pending - waiting" not in updated
+
+
+def test_upsert_status_line_adds_to_split_line_format():
+    text = """# Daily
+
+@hermes id:iterate-001
+- [ ] cheque os templates.
+"""
+
+    updated = upsert_status_line(text, "iterate-001", "in-progress - checking")
+
+    assert "- [ ] cheque os templates." in updated
+    assert "Status: in-progress - checking" in updated
+
+
+def test_upsert_status_line_updates_split_line_existing():
+    text = """# Daily
+
+@hermes id:iterate-001
+- [ ] cheque os templates.
+  Status: pending - start
+"""
+
+    updated = upsert_status_line(text, "iterate-001", "completed - done")
+
+    assert "Status: completed - done" in updated
+    assert "Status: pending - start" not in updated
+
+
+def test_upsert_status_line_handles_post_marked_split_line():
+    """After _mark_request, a split-line has @hermes id:xxx + - [x] below."""
+    text = """# Daily
+
+@hermes id:iterate-001
+- [x] cheque os templates.
+"""
+
+    updated = upsert_status_line(text, "iterate-001", "completed - templates ok")
+
+    assert "Status: completed - templates ok" in updated
+    assert "- [x] cheque os templates." in updated
+
+
+def test_upsert_status_line_raises_for_missing_id():
+    text = """# Inbox
+
+- [ ] @hermes id:other
+  stuff.
+"""
+
+    try:
+        upsert_status_line(text, "missing", "done")
+    except ValueError as exc:
+        assert "not found" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+# ---------------------------------------------------------------------------
+# Log entries (preserved for backward compat)
 # ---------------------------------------------------------------------------
 
 def test_append_request_log_entry_creates_heading_and_fields():

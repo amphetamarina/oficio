@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -17,7 +18,7 @@ except Exception:  # pragma: no cover - lets tests/imports run outside Hermes
         return json.dumps(payload, ensure_ascii=False)
 
 try:
-    from .oficio_config import load_config, resolve_daily_path, resolve_inbox_path, resolve_log_path, vault_abspath
+    from .oficio_config import _frontmatter, load_config, resolve_daily_path, resolve_inbox_path, resolve_log_path, today_string, vault_abspath
     from .oficio_obsidian import append_note, read_note, write_note
     from .oficio_protocol import (
         _find_max_auto_id,
@@ -34,9 +35,10 @@ try:
         start_request_log_entry,
         summarize_log_entries,
         update_request_log_status,
+        upsert_status_line,
     )
 except Exception:  # pragma: no cover - direct import mode
-    from oficio_config import load_config, resolve_daily_path, resolve_inbox_path, resolve_log_path, vault_abspath
+    from oficio_config import _frontmatter, load_config, resolve_daily_path, resolve_inbox_path, resolve_log_path, today_string, vault_abspath
     from oficio_obsidian import append_note, read_note, write_note
     from oficio_protocol import (
         _find_max_auto_id,
@@ -53,6 +55,7 @@ except Exception:  # pragma: no cover - direct import mode
         start_request_log_entry,
         summarize_log_entries,
         update_request_log_status,
+        upsert_status_line,
     )
 
 CONFIG_SCHEMA = {
@@ -219,9 +222,9 @@ def _handle_scan(args: Dict[str, Any], **kw: Any) -> str:
     if explicit_path:
         paths_to_scan = [explicit_path]
     else:
-        paths_to_scan = [resolve_inbox_path(cfg)]
-        if cfg.get("scan_daily", True):
-            paths_to_scan.append(resolve_daily_path(cfg))
+        paths_to_scan = [resolve_daily_path(cfg)]
+        if cfg.get("scan_inbox", False):
+            paths_to_scan.insert(0, resolve_inbox_path(cfg))
 
     all_pending: List[Dict[str, object]] = []
     errors: List[str] = []
@@ -291,17 +294,16 @@ def _handle_start(args: Dict[str, Any], **kw: Any) -> str:
     cfg = load_config()
     request_id = str(args.get("id") or "").strip()
     summary = str(args.get("summary") or "").strip()
-    source_path = str(args.get("path") or resolve_inbox_path(cfg))
+    source_path = str(args.get("path") or resolve_daily_path(cfg))
     if not request_id:
         return tool_error("id is required")
     if not summary:
         return tool_error("summary is required")
     try:
-        log_path = resolve_log_path(cfg)
-        log = _read_or_new_log(cfg, log_path)
-        updated_log = start_request_log_entry(log, request_id, source_path, summary)
-        write_note(log_path, updated_log)
-        return tool_result({"success": True, "id": request_id, "status": "pending", "log_path": log_path})
+        source = _read_note_with_fallback(cfg, source_path)
+        updated = upsert_status_line(source, request_id, f"in-progress - {summary}")
+        write_note(source_path, updated)
+        return tool_result({"success": True, "id": request_id, "status": "in-progress", "source_path": source_path})
     except Exception as exc:
         return tool_error(f"oficio_start failed: {exc}")
 
@@ -310,7 +312,7 @@ def _handle_complete(args: Dict[str, Any], **kw: Any) -> str:
     cfg = load_config()
     request_id = str(args.get("id") or "").strip()
     note = str(args.get("note") or "").strip()
-    source_path = str(args.get("path") or resolve_inbox_path(cfg))
+    source_path = str(args.get("path") or resolve_daily_path(cfg))
     line_number = args.get("line")
     if line_number is not None:
         line_number = int(line_number)
@@ -319,19 +321,26 @@ def _handle_complete(args: Dict[str, Any], **kw: Any) -> str:
     if not note:
         return tool_error("note is required")
     try:
+        # Generate session log ID and path
+        session_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+        session_log_rel = f"agent/oficio/sessions/session-{session_id}.md"
+
         source = _read_note_with_fallback(cfg, source_path)
         try:
-            updated_source = mark_request_completed(source, request_id, note, line_number=line_number)
+            updated_source = mark_request_completed(source, request_id, note, line_number=line_number, session_log=session_log_rel)
         except ValueError:
             if line_number is None or not request_exists(source, request_id):
                 raise
-            updated_source = mark_request_completed(source, request_id, note)
+            updated_source = mark_request_completed(source, request_id, note, session_log=session_log_rel)
         write_note(source_path, updated_source)
-        log_path = resolve_log_path(cfg)
-        log = _read_or_new_log(cfg, log_path)
-        updated_log = update_request_log_status(log, request_id, "completed", note)
-        write_note(log_path, updated_log)
-        return tool_result({"success": True, "id": request_id, "path": source_path, "log_path": log_path})
+
+        # Create session log note in vault
+        day = today_string()
+        fm = _frontmatter({"tags": ["oficio/session"], "type": "session", "date": day})
+        session_content = f"{fm}# Session session-{session_id}\n\n- request: {request_id}\n- status: completed\n- at: {datetime.now().astimezone().isoformat(timespec='seconds')}\n- source: {source_path}\n\n{note}\n"
+        write_note(session_log_rel, session_content)
+
+        return tool_result({"success": True, "id": request_id, "path": source_path, "session_log": session_log_rel})
     except Exception as exc:
         return tool_error(f"oficio_complete failed: {exc}")
 
@@ -340,7 +349,7 @@ def _handle_fail(args: Dict[str, Any], **kw: Any) -> str:
     cfg = load_config()
     request_id = str(args.get("id") or "").strip()
     error = str(args.get("error") or "").strip()
-    source_path = str(args.get("path") or resolve_inbox_path(cfg))
+    source_path = str(args.get("path") or resolve_daily_path(cfg))
     line_number = args.get("line")
     if line_number is not None:
         line_number = int(line_number)
@@ -349,6 +358,10 @@ def _handle_fail(args: Dict[str, Any], **kw: Any) -> str:
     if not error:
         return tool_error("error is required")
     try:
+        # Generate session log ID and path
+        session_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+        session_log_rel = f"agent/oficio/sessions/session-{session_id}.md"
+
         source = _read_note_with_fallback(cfg, source_path)
         try:
             updated_source = mark_request_failed(source, request_id, error, line_number=line_number)
@@ -357,11 +370,14 @@ def _handle_fail(args: Dict[str, Any], **kw: Any) -> str:
                 raise
             updated_source = mark_request_failed(source, request_id, error)
         write_note(source_path, updated_source)
-        log_path = resolve_log_path(cfg)
-        log = _read_or_new_log(cfg, log_path)
-        updated_log = update_request_log_status(log, request_id, "failed", error)
-        write_note(log_path, updated_log)
-        return tool_result({"success": True, "id": request_id, "path": source_path, "log_path": log_path})
+
+        # Create session log note in vault
+        day = today_string()
+        fm = _frontmatter({"tags": ["oficio/session"], "type": "session", "date": day})
+        session_content = f"{fm}# Session session-{session_id}\n\n- request: {request_id}\n- status: failed\n- at: {datetime.now().astimezone().isoformat(timespec='seconds')}\n- source: {source_path}\n\n{error}\n"
+        write_note(session_log_rel, session_content)
+
+        return tool_result({"success": True, "id": request_id, "path": source_path, "session_log": session_log_rel})
     except Exception as exc:
         return tool_error(f"oficio_fail failed: {exc}")
 
@@ -420,18 +436,18 @@ def _handle_summary(args: Dict[str, Any], **kw: Any) -> str:
 def _handle_request(args: Dict[str, Any], **kw: Any) -> str:
     cfg = load_config()
     description = str(args.get("description") or "").strip()
-    inbox_path = str(args.get("path") or resolve_inbox_path(cfg))
+    target_path = str(args.get("path") or resolve_daily_path(cfg))
     request_id = str(args.get("id") or "").strip()
     if not description:
         return tool_error("description is required")
     try:
-        text = _read_note_with_fallback(cfg, inbox_path)
+        text = _read_note_with_fallback(cfg, target_path)
         if not request_id:
             log_text = _read_or_new_log(cfg, resolve_log_path(cfg))
             request_id = next_available_request_id(slugify_request_id(description), text, log_text)
         updated = append_inbox_request(text, description, request_id=request_id, marker=str(cfg.get("pending_marker") or "@hermes"))
-        write_note(inbox_path, updated)
-        return tool_result({"success": True, "id": request_id, "path": inbox_path})
+        write_note(target_path, updated)
+        return tool_result({"success": True, "id": request_id, "path": target_path})
     except Exception as exc:
         return tool_error(f"oficio_request failed: {exc}")
 
@@ -439,9 +455,9 @@ def _handle_request(args: Dict[str, Any], **kw: Any) -> str:
 def _session_start_context(*args: Any, **kwargs: Any) -> Dict[str, Any] | None:
     try:
         cfg = load_config(ensure=False)
-        paths_to_scan = [resolve_inbox_path(cfg)]
-        if cfg.get("scan_daily", True):
-            paths_to_scan.append(resolve_daily_path(cfg))
+        paths_to_scan = [resolve_daily_path(cfg)]
+        if cfg.get("scan_inbox", False):
+            paths_to_scan.insert(0, resolve_inbox_path(cfg))
     except Exception:
         return None
 

@@ -7,6 +7,7 @@ from typing import Dict, List
 
 _PENDING_RE = re.compile(r"^(?P<indent>\s*)- \[ \] (?P<body>.*@hermes\b.*)$", re.MULTILINE)
 _ID_RE = re.compile(r"\bid:([A-Za-z0-9_.:-]+)")
+_STATUS_LINE_RE = re.compile(r"^(\s+)Status:\s*(.+)$")
 
 # ---------------------------------------------------------------------------
 # ID generation
@@ -277,17 +278,23 @@ def mark_request_completed(
     *,
     timestamp: str | None = None,
     line_number: int | None = None,
+    session_log: str | None = None,
 ) -> str:
     stamp = _timestamp(timestamp)
-    return _mark_request(
-        text,
-        request_id,
-        [
-            _format_indented_field("completed", stamp),
-            _format_indented_field("note", note),
-        ],
-        line_number=line_number,
-    )
+    status_msg = f"completed - {note}"
+    if session_log:
+        status_msg += f" | Session: [[{session_log}]]"
+
+    # Step 1: toggle checkbox + inject auto-ID (no metadata fields)
+    try:
+        intermediate = _mark_request(text, request_id, [], line_number=line_number)
+    except ValueError:
+        if line_number is None or not request_exists(text, request_id):
+            raise
+        intermediate = _mark_request(text, request_id, [])
+
+    # Step 2: add/update Status line
+    return upsert_status_line(intermediate, request_id, status_msg)
 
 
 def mark_request_failed(
@@ -299,16 +306,18 @@ def mark_request_failed(
     line_number: int | None = None,
 ) -> str:
     stamp = _timestamp(timestamp)
-    return _mark_request(
-        text,
-        request_id,
-        [
-            _format_indented_field("status", "failed"),
-            _format_indented_field("failed", stamp),
-            _format_indented_field("error", error),
-        ],
-        line_number=line_number,
-    )
+    status_msg = f"failed - {error}"
+
+    # Step 1: toggle checkbox + inject auto-ID (no metadata fields)
+    try:
+        intermediate = _mark_request(text, request_id, [], line_number=line_number)
+    except ValueError:
+        if line_number is None or not request_exists(text, request_id):
+            raise
+        intermediate = _mark_request(text, request_id, [])
+
+    # Step 2: add/update Status line
+    return upsert_status_line(intermediate, request_id, status_msg)
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +333,70 @@ def replace_once(text: str, old: str, new: str) -> str:
     if count > 1:
         raise ValueError("old text occurs multiple times")
     return text.replace(old, new, 1)
+
+
+# ---------------------------------------------------------------------------
+# Status line (daily-note-first architecture)
+# ---------------------------------------------------------------------------
+
+def upsert_status_line(text: str, request_id: str, status_message: str) -> str:
+    """Add or update a Status line inside the request block for *request_id*.
+
+    The Status line is inserted as the first indented line after the @hermes
+    marker.  If one already exists it is replaced in-place.
+    """
+    lines = text.splitlines()
+
+    for idx, line in enumerate(lines):
+        if "@hermes" not in line:
+            continue
+        match = _ID_RE.search(line)
+        if not match or match.group(1) != request_id:
+            continue
+
+        # Standard format: - [ ] @hermes id:xxx on same line
+        if re.match(r"^\s*- \[\s*[ x]\]", line):
+            end = _block_end(lines, idx)
+            # Look for existing Status line within the block
+            status_idx = None
+            for i in range(idx + 1, end):
+                if _STATUS_LINE_RE.match(lines[i]):
+                    status_idx = i
+                    break
+
+            new_status = f"  Status: {status_message}"
+
+            if status_idx is not None:
+                lines[status_idx] = new_status
+            else:
+                lines.insert(idx + 1, new_status)
+
+            return "\n".join(lines) + "\n"
+
+        # Split-line / standalone @hermes id:xxx line (may be followed by - [ ] or - [x])
+        if not re.match(r"^\s*- \[", line):
+            # Find the next non-blank line — it should be the checkbox line
+            j = idx + 1
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            if j < len(lines) and re.match(r"^\s*- \[\s*[ x]\]", lines[j]) and "@hermes" not in lines[j]:
+                end = _block_end(lines, j)
+                status_idx = None
+                for i in range(j + 1, end):
+                    if _STATUS_LINE_RE.match(lines[i]):
+                        status_idx = i
+                        break
+
+                new_status = f"  Status: {status_message}"
+
+                if status_idx is not None:
+                    lines[status_idx] = new_status
+                else:
+                    lines.insert(j + 1, new_status)
+
+                return "\n".join(lines) + "\n"
+
+    raise ValueError(f"pending request not found: {request_id}")
 
 
 # ---------------------------------------------------------------------------

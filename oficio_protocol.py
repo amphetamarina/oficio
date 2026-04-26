@@ -232,6 +232,14 @@ def _mark_request(
     raise ValueError(f"pending request not found: {request_id}")
 
 
+def request_exists(text: str, request_id: str, *, line_number: int | None = None) -> bool:
+    try:
+        _mark_request(text, request_id, [], line_number=line_number)
+        return True
+    except ValueError:
+        return False
+
+
 def mark_request_completed(
     text: str,
     request_id: str,
@@ -353,7 +361,6 @@ def update_request_log_status(
     Finds the `## request_id` section and replaces `status: pending` with the
     new status, appending the message and timestamp.
     """
-    stamp = _timestamp(timestamp)
     section_header = f"## {request_id}"
 
     # Find the section
@@ -384,3 +391,86 @@ def update_request_log_status(
         updated_body += f"\n{message.strip()}\n"
 
     return existing_log[:idx] + section_header + updated_body + after
+
+
+def summarize_log_entries(log_text: str, *, source_path: str, default_date: str = "") -> List[Dict[str, str]]:
+    entries: List[Dict[str, str]] = []
+    sections = re.split(r"(?m)^## ", log_text)
+    for section in sections[1:]:
+        lines = section.splitlines()
+        if not lines:
+            continue
+        request_id = lines[0].strip()
+        status = "unknown"
+        at = ""
+        source = source_path
+        message_lines: List[str] = []
+        body_started = False
+        for raw in lines[1:]:
+            line = raw.strip()
+            if line.startswith("- status:"):
+                status = line.split(":", 1)[1].strip()
+                continue
+            if line.startswith("- at:"):
+                at = line.split(":", 1)[1].strip()
+                continue
+            if line.startswith("- source:"):
+                source = line.split(":", 1)[1].strip()
+                continue
+            if raw.strip() == "" and not body_started:
+                continue
+            body_started = True
+            if raw.strip():
+                message_lines.append(raw.strip())
+        entry_date = default_date or (at[:10] if len(at) >= 10 else "")
+        entries.append(
+            {
+                "date": entry_date,
+                "id": request_id,
+                "status": status,
+                "at": at,
+                "source": source,
+                "note": " ".join(message_lines).strip(),
+            }
+        )
+    return entries
+
+
+def render_summary_markdown(entries: List[Dict[str, str]]) -> str:
+    lines = [
+        "| Date | ID | Status | Note |",
+        "|---|---|---|---|",
+    ]
+    for entry in entries:
+        note = entry.get("note", "").replace("|", "\\|")
+        lines.append(
+            f"| {entry.get('date', '')} | {entry.get('id', '')} | {entry.get('status', '')} | {note} |"
+        )
+    return "\n".join(lines)
+
+
+def render_summary_plain(entries: List[Dict[str, str]]) -> str:
+    return "\n".join(
+        f"{entry.get('date', '')} | {entry.get('id', '')} | {entry.get('status', '')} | {entry.get('note', '')}"
+        for entry in entries
+    )
+
+
+def append_inbox_request(
+    text: str,
+    description: str,
+    *,
+    request_id: str,
+    marker: str = "@hermes",
+) -> str:
+    description = description.strip()
+    if not description:
+        raise ValueError("description is required")
+    request_id = request_id.strip()
+    if not request_id:
+        raise ValueError("id is required")
+    request_line = f"- [ ] {marker} id:{request_id} {description}"
+    base = text.rstrip()
+    if base:
+        return base + "\n\n" + request_line + "\n"
+    return request_line + "\n"

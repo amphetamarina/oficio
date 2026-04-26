@@ -141,6 +141,47 @@ def test_complete_with_line_number_injects_auto_id(tmp_path, monkeypatch):
     assert "- status: completed" in log.read_text()
 
 
+def test_complete_ignores_stale_line_when_id_still_exists(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config_dir = tmp_path / "Documents" / "amphetamarina" / "agent" / "oficio"
+    monkeypatch.setenv("OFICIO_CONFIG_DIR", str(config_dir))
+    plugin = load_plugin_module()
+    cfg = plugin.load_config()
+    Path(cfg["config_file"]).write_text(Path(cfg["config_file"]).read_text().replace("use_obsidian_cli: true", "use_obsidian_cli: false"))
+    cfg = plugin.load_config()
+    daily_path = "Daily/2026-04-25.md"
+    daily = vault_abspath(cfg, daily_path)
+    daily.parent.mkdir(parents=True, exist_ok=True)
+    daily.write_text(
+        "# Daily\n\n"
+        "- [ ] @hermes id:other\n"
+        "  first task.\n"
+        "\n"
+        "- [ ] @hermes id:task-2\n"
+        "  second task.\n"
+    )
+
+    # Simulate line shift after first completion metadata was added elsewhere.
+    shifted = daily.read_text().replace(
+        "- [ ] @hermes id:other\n  first task.\n",
+        "- [x] @hermes id:other\n  first task.\n  - completed: 2026-04-25T20:00:00-03:00\n  - note: done\n",
+    )
+    daily.write_text(shifted)
+
+    raw = plugin._handle_complete({
+        "id": "task-2",
+        "path": daily_path,
+        "line": 6,
+        "note": "completed despite stale line",
+    })
+    payload = json.loads(raw)
+
+    assert payload["success"] is True
+    content = daily.read_text()
+    assert "- [x] @hermes id:task-2" in content
+    assert "- note: completed despite stale line" in content
+
+
 def test_start_handler_creates_pending_log_entry(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     config_dir = tmp_path / "Documents" / "amphetamarina" / "agent" / "oficio"
@@ -217,6 +258,64 @@ def test_fail_handler_with_line_number(tmp_path, monkeypatch):
     assert "- error: something went wrong" in inbox.read_text()
 
 
+def test_summary_handler_aggregates_daily_logs(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config_dir = tmp_path / "Documents" / "amphetamarina" / "agent" / "oficio"
+    monkeypatch.setenv("OFICIO_CONFIG_DIR", str(config_dir))
+    plugin = load_plugin_module()
+    cfg = plugin.load_config()
+    Path(cfg["config_file"]).write_text(Path(cfg["config_file"]).read_text().replace("use_obsidian_cli: true", "use_obsidian_cli: false"))
+    cfg = plugin.load_config()
+    log_dir = vault_abspath(cfg, "agent/oficio/log/daily")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    (log_dir / "2026-04-24.md").write_text(
+        "# ofício log · 2026-04-24\n\n"
+        "## req-1\n\n"
+        "- status: completed\n"
+        "- at: 2026-04-24T10:00:00-03:00\n"
+        "- source: inbox.md\n\n"
+        "first summary\n"
+    )
+    (log_dir / "2026-04-25.md").write_text(
+        "# ofício log · 2026-04-25\n\n"
+        "## req-2\n\n"
+        "- status: failed\n"
+        "- at: 2026-04-25T11:00:00-03:00\n"
+        "- source: Daily/2026-04-25.md\n\n"
+        "boom\n"
+    )
+
+    raw = plugin._handle_summary({"days": 7, "format": "markdown"})
+    payload = json.loads(raw)
+
+    assert payload["success"] is True
+    assert payload["count"] == 2
+    assert "| Date | ID | Status | Note |" in payload["summary"]
+    assert "req-1" in payload["summary"]
+    assert "req-2" in payload["summary"]
+
+
+def test_request_handler_appends_follow_up_to_inbox(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config_dir = tmp_path / "Documents" / "amphetamarina" / "agent" / "oficio"
+    monkeypatch.setenv("OFICIO_CONFIG_DIR", str(config_dir))
+    plugin = load_plugin_module()
+    cfg = plugin.load_config()
+    Path(cfg["config_file"]).write_text(Path(cfg["config_file"]).read_text().replace("use_obsidian_cli: true", "use_obsidian_cli: false"))
+    cfg = plugin.load_config()
+    inbox_path = plugin.resolve_inbox_path(cfg)
+    inbox = vault_abspath(cfg, inbox_path)
+    inbox.write_text("# ofício inbox\n")
+
+    raw = plugin._handle_request({"id": "follow-up-1", "description": "investigue o erro"})
+    payload = json.loads(raw)
+
+    assert payload["success"] is True
+    assert payload["id"] == "follow-up-1"
+    content = inbox.read_text()
+    assert "- [ ] @hermes id:follow-up-1 investigue o erro" in content
+
+
 def test_replace_handler_rejects_absolute_path(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("OFICIO_CONFIG_DIR", str(tmp_path / "Documents" / "amphetamarina" / "agent" / "oficio"))
@@ -251,4 +350,6 @@ def test_register_degrades_when_ctx_has_no_hook_support(tmp_path, monkeypatch):
 
     assert "oficio_complete" in ctx.tools
     assert "oficio_start" in ctx.tools
+    assert "oficio_summary" in ctx.tools
+    assert "oficio_request" in ctx.tools
     assert "oficio" in ctx.commands

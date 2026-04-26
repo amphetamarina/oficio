@@ -316,6 +316,49 @@ def test_request_handler_appends_follow_up_to_inbox(tmp_path, monkeypatch):
     assert "- [ ] @hermes id:follow-up-1 investigue o erro" in content
 
 
+def test_request_handler_generates_slug_id_from_description(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config_dir = tmp_path / "Documents" / "amphetamarina" / "agent" / "oficio"
+    monkeypatch.setenv("OFICIO_CONFIG_DIR", str(config_dir))
+    plugin = load_plugin_module()
+    cfg = plugin.load_config()
+    Path(cfg["config_file"]).write_text(Path(cfg["config_file"]).read_text().replace("use_obsidian_cli: true", "use_obsidian_cli: false"))
+    cfg = plugin.load_config()
+    inbox_path = plugin.resolve_inbox_path(cfg)
+    inbox = vault_abspath(cfg, inbox_path)
+    inbox.write_text("# ofício inbox\n")
+
+    raw = plugin._handle_request({"description": "Algo relacionado ao título!!!"})
+    payload = json.loads(raw)
+
+    assert payload["success"] is True
+    assert payload["id"] == "algo-relacionado-ao-titulo"
+    assert "- [ ] @hermes id:algo-relacionado-ao-titulo Algo relacionado ao título!!!" in inbox.read_text()
+
+
+def test_request_handler_slug_avoids_collisions_with_inbox_and_log(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config_dir = tmp_path / "Documents" / "amphetamarina" / "agent" / "oficio"
+    monkeypatch.setenv("OFICIO_CONFIG_DIR", str(config_dir))
+    plugin = load_plugin_module()
+    cfg = plugin.load_config()
+    Path(cfg["config_file"]).write_text(Path(cfg["config_file"]).read_text().replace("use_obsidian_cli: true", "use_obsidian_cli: false"))
+    cfg = plugin.load_config()
+    inbox_path = plugin.resolve_inbox_path(cfg)
+    inbox = vault_abspath(cfg, inbox_path)
+    inbox.write_text("# ofício inbox\n\n- [ ] @hermes id:algo-relacionado-ao-titulo pedido antigo\n")
+    log = vault_abspath(cfg, plugin.resolve_log_path(cfg))
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("# ofício log\n\n## algo-relacionado-ao-titulo-2\n\n- status: completed\n")
+
+    raw = plugin._handle_request({"description": "Algo relacionado ao título"})
+    payload = json.loads(raw)
+
+    assert payload["success"] is True
+    assert payload["id"] == "algo-relacionado-ao-titulo-3"
+    assert "id:algo-relacionado-ao-titulo-3" in inbox.read_text()
+
+
 def test_replace_handler_rejects_absolute_path(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("OFICIO_CONFIG_DIR", str(tmp_path / "Documents" / "amphetamarina" / "agent" / "oficio"))

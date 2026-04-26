@@ -25,10 +25,12 @@ try:
         find_pending_requests,
         mark_request_completed,
         mark_request_failed,
+        next_available_request_id,
         render_summary_markdown,
         render_summary_plain,
         replace_once,
         request_exists,
+        slugify_request_id,
         start_request_log_entry,
         summarize_log_entries,
         update_request_log_status,
@@ -42,10 +44,12 @@ except Exception:  # pragma: no cover - direct import mode
         find_pending_requests,
         mark_request_completed,
         mark_request_failed,
+        next_available_request_id,
         render_summary_markdown,
         render_summary_plain,
         replace_once,
         request_exists,
+        slugify_request_id,
         start_request_log_entry,
         summarize_log_entries,
         update_request_log_status,
@@ -423,23 +427,13 @@ def _handle_request(args: Dict[str, Any], **kw: Any) -> str:
     try:
         text = _read_note_with_fallback(cfg, inbox_path)
         if not request_id:
-            request_id = _find_next_request_id(text)
+            log_text = _read_or_new_log(cfg, resolve_log_path(cfg))
+            request_id = next_available_request_id(slugify_request_id(description), text, log_text)
         updated = append_inbox_request(text, description, request_id=request_id, marker=str(cfg.get("pending_marker") or "@hermes"))
         write_note(inbox_path, updated)
         return tool_result({"success": True, "id": request_id, "path": inbox_path})
     except Exception as exc:
         return tool_error(f"oficio_request failed: {exc}")
-
-
-def _find_next_request_id(text: str) -> str:
-    current = _find_max_auto_id(text)
-    date = Path(resolve_log_path(load_config())).stem.replace(".md", "")
-    if not date or len(date) != 10:
-        from datetime import datetime
-        date = datetime.now().strftime("%Y%m%d")
-    else:
-        date = date.replace("-", "")
-    return f"{date}-{current + 1}"
 
 
 def _session_start_context(*args: Any, **kwargs: Any) -> Dict[str, Any] | None:

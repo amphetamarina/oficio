@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import datetime
 from typing import Dict, List
 
@@ -40,6 +41,35 @@ def _request_id(body: str, path: str, index: int) -> str:
     if match:
         return match.group(1)
     return _auto_id(index)
+
+
+def slugify_request_id(text: str, *, fallback: str = "pedido") -> str:
+    """Generate a human-readable request id slug from request text."""
+    normalized = unicodedata.normalize("NFKD", text)
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    lowered = ascii_text.lower()
+    lowered = re.sub(r"\bid:[A-Za-z0-9_.:-]+\b", " ", lowered)
+    lowered = lowered.replace("@hermes", " ")
+    lowered = re.sub(r"^-\s*\[ \]\s*", " ", lowered)
+    lowered = re.sub(r"[^a-z0-9]+", "-", lowered)
+    slug = lowered.strip("-")
+    return slug or fallback
+
+
+def next_available_request_id(preferred_id: str, *texts: str) -> str:
+    """Return a unique request id, suffixing with -2, -3, ... when needed."""
+    candidate = preferred_id.strip()
+    if not candidate:
+        raise ValueError("preferred_id is required")
+    corpus = "\n".join(texts)
+    if f"## {candidate}" not in corpus and f"id:{candidate}" not in corpus:
+        return candidate
+    suffix = 2
+    while True:
+        alt = f"{candidate}-{suffix}"
+        if f"## {alt}" not in corpus and f"id:{alt}" not in corpus:
+            return alt
+        suffix += 1
 
 
 # ---------------------------------------------------------------------------

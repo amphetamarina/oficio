@@ -62,7 +62,7 @@ _o sistema é um espaço contínuo de texto._
 
 ## o que existe hoje
 
-o plugin Hermes `oficio` expõe nove ferramentas e um gancho de sessão.
+o plugin Hermes `oficio` expõe onze ferramentas e um gancho de sessão.
 
 ### ferramentas
 
@@ -77,6 +77,8 @@ o plugin Hermes `oficio` expõe nove ferramentas e um gancho de sessão.
 | `oficio_replace` | troca uma string exata por outra (seguro, sem regex) |
 | `oficio_today` | mostra os caminhos de inbox e log do dia |
 | `oficio_config_show` | mostra a configuração ativa |
+| `oficio_summary` | agrega logs diários recentes em resumo plain-text ou markdown |
+| `oficio_request` | cria um novo pedido pendente no inbox; sem `id`, gera slug a partir do título/descrição e evita colisão com inbox/log |
 
 ### gancho de sessão
 
@@ -95,7 +97,7 @@ dois lugares são escaneados por padrão:
 - [ ] @hermes descreva o que o agente deve fazer.
 ```
 
-o `id:` é opcional. se omitido, o scan gera um ID automático no formato `YYYYMMDD-N`. se quiser um ID explícito:
+o `id:` é opcional. se omitido em pedidos escritos à mão no Obsidian, o scan continua gerando um ID automático no formato `YYYYMMDD-N` para referência temporária. já na ferramenta `oficio_request`, quando o `id` é omitido o plugin gera um slug legível a partir da descrição (por exemplo `algo-relacionado-ao-titulo`) e, se esse id já existir no inbox ou no log, escolhe uma variação livre como `algo-relacionado-ao-titulo-2`.
 
 ```markdown
 - [ ] @hermes id:meu-pedido

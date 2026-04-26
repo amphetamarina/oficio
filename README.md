@@ -97,7 +97,7 @@ dois lugares são escaneados por padrão:
 - [ ] @hermes descreva o que o agente deve fazer.
 ```
 
-o `id:` é opcional. se omitido em pedidos escritos à mão no Obsidian, o scan continua gerando um ID automático no formato `YYYYMMDD-N` para referência temporária. já na ferramenta `oficio_request`, quando o `id` é omitido o plugin gera um slug legível a partir da descrição (por exemplo `algo-relacionado-ao-titulo`) e, se esse id já existir no inbox ou no log, escolhe uma variação livre como `algo-relacionado-ao-titulo-2`.
+o `id:` é opcional. se omitido em pedidos escritos à mão no Obsidian, o scan continua gerando um ID automático no formato `YYYYMMDD-N` para referência temporária. já na ferramenta `oficio_request`, quando o `id` é omitido o plugin gera um slug legível a partir da descrição/título (por exemplo `algo-relacionado-ao-titulo`) e valida colisões no inbox e no log diário antes de escrever; se o slug já existir, escolhe uma variação livre como `algo-relacionado-ao-titulo-2`. assim, o próprio título já produz um identificador humano e o log continua servindo como lugar visível de verificação de unicidade.
 
 ```markdown
 - [ ] @hermes id:meu-pedido

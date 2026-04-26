@@ -116,7 +116,7 @@ o plugin Hermes `oficio` (~300 linhas) expõe oito ferramentas e um gancho de se
 
 | ferramenta | o que faz |
 |---|---|
-| `oficio_scan` | encontra pedidos `- [ ] @hermes id:...` no inbox |
+| `oficio_scan` | encontra pedidos `- [ ] @hermes id:...` no inbox e na daily note do dia |
 | `oficio_read` | lê qualquer nota do cofre |
 | `oficio_append` | acrescenta texto a uma nota |
 | `oficio_replace` | troca uma string exata por outra (seguro, sem regex) |
@@ -127,7 +127,16 @@ o plugin Hermes `oficio` (~300 linhas) expõe oito ferramentas e um gancho de se
 
 ### gancho de sessão
 
-`on_session_start`: ao iniciar uma sessão, o plugin escaneia o inbox e informa o agente sobre pedidos pendentes — sem executar, sem marcar, sem escrever no cofre. o agente decide se oferece execução.
+`on_session_start`: ao iniciar uma sessão, o plugin escaneia o inbox e a daily note do dia e informa o agente sobre pedidos pendentes — sem executar, sem marcar, sem escrever no cofre. o agente decide se oferece execução. configurável: `scan_daily: false` para escanear só o inbox.
+
+### onde escrever pedidos
+
+dois lugares são escaneados por padrão:
+
+1. **`agent/oficio/inbox.md`** — o lugar canônico, sempre escaneado.
+2. **`Daily/YYYY-MM-DD.md`** — sua daily note do Obsidian. escreva `- [ ] @hermes id:...` em qualquer daily e o plugin encontra.
+
+assim você pode chamar o agente do inbox (para pedidos persistentes) ou diretamente da daily (para pedidos do dia). o caminho da daily é configurável: `daily_path: Daily`.
 
 ### formato dos pedidos
 
@@ -179,6 +188,16 @@ date: 2026-04-25
 /oficio fail <id> <erro...>
 ```
 
+### template rápido
+
+para inserir um bloco `@hermes` com um atalho no Obsidian, use o template `hermes-request` (já incluso no diretório `Templates/` do cofre). com o plugin Templates do Obsidian habilitado:
+
+1. posicione o cursor onde quer o pedido.
+2. `Cmd/Ctrl+T` → escolha `hermes-request`.
+3. preencha o id e a descrição.
+
+o template usa placeholders `${1}`, `${2}`, `${0}` para navegação rápida entre campos.
+
 ## o que ainda não existe
 
 a lista abaixo registra o que os princípios pedem mas a implementação atual ainda não cobre. cada item é uma decisão pendente, não uma promessa.
@@ -186,7 +205,7 @@ a lista abaixo registra o que os princípios pedem mas a implementação atual a
 - **sincronização como gatilho**: um gancho que reage a mudanças de sync e aciona o agente quando um novo pedido aparece. a arquitetura prevê isso, mas a versão atual depende de scan manual ou do gancho `on_session_start`.
 - **watcher de filesystem**: escuta contínua do inbox. o lugar natural é um cron visível do Hermes, não um daemon oculto. ainda não implementado.
 - **CALC / transformações inline**: selecionar texto no cofre, aplicar transformação (resumo, cálculo, reescrita) e ver o resultado no mesmo lugar. conceito documentado, implementação futura.
-- **plugins auxiliares no Obsidian**: a filosofia prefere poucos plugins, mas templates, dataview ou quick-add podem reduzir atrito sem violar princípios. a decisão de quais entram ainda está aberta.
+- **plugins auxiliares no Obsidian**: a filosofia prefere poucos plugins, mas dataview ou quick-add podem reduzir atrito sem violar princípios. templates já estão disponíveis (`hermes-request`). a decisão sobre plugins adicionais ainda está aberta.
 - **agentes múltiplos simultâneos**: o protocolo suporta múltiplos agentes (cada um com seu marcador), mas o plugin atual só escaneia `@hermes`. generalização futura.
 - **inbox diário opcional**: a configuração prevê `use_daily_inbox`, mas o fluxo canônico usa um inbox único. a rota diária existe como possibilidade, não como padrão testado.
 
@@ -205,12 +224,14 @@ nix shell nixpkgs#python312 nixpkgs#python312Packages.pytest -c sh -lc 'PYTHONPA
 
 fluxo real:
 
-1. escreva no Obsidian, em `agent/oficio/inbox.md`:
-   ```markdown
-   - [ ] @hermes id:teste-001
-     leia este pedido e registre uma confirmação no log diário.
-   ```
-2. no Hermes, use `/oficio scan` ou peça ao agente para escanear.
+1. escreva um pedido em qualquer um destes lugares:
+   - **`agent/oficio/inbox.md`** — pedidos persistentes:
+     ```markdown
+     - [ ] @hermes id:teste-001
+       leia este pedido e registre uma confirmação no log diário.
+     ```
+   - **sua daily note** (`Daily/YYYY-MM-DD.md`) — pedidos do dia, usando o template `hermes-request`.
+2. no Hermes, use `/oficio scan` ou peça ao agente para escanear (ele escaneia os dois lugares).
 3. depois de executar, o agente chama `oficio_complete` (ou `oficio_fail` se der erro).
 4. confira no Obsidian: a tarefa virou `[x]` e o log diário tem a entrada.
 

@@ -35,22 +35,60 @@ def _format_indented_field(name: str, value: str) -> str:
     return f"  - {name}: {safe}"
 
 
+def _is_split_hermes(lines: List[str], idx: int) -> bool:
+    """Return True if lines[idx] is a standalone @hermes id:... line followed by a - [ ] line."""
+    line = lines[idx]
+    if "@hermes" not in line or re.match(r"^\s*- \[ \] ", line):
+        return False
+    _id_match = _ID_RE.search(line)
+    if not _id_match:
+        return False
+    # Look ahead for the - [ ] line, skipping blank lines
+    j = idx + 1
+    while j < len(lines) and not lines[j].strip():
+        j += 1
+    return j < len(lines) and bool(re.match(r"^\s*- \[ \] ", lines[j])) and "@hermes" not in lines[j]
+
+
+def _split_next_idx(lines: List[str], idx: int) -> int:
+    """After a split @hermes line, return the index of the following - [ ] line."""
+    j = idx + 1
+    while j < len(lines) and not lines[j].strip():
+        j += 1
+    return j
+
+
 def find_pending_requests(path: str, text: str) -> List[Dict[str, object]]:
     lines = text.splitlines()
     pending: List[Dict[str, object]] = []
     for idx, line in enumerate(lines):
-        if not re.match(r"^\s*- \[ \] ", line) or "@hermes" not in line:
+        # Standard format: - [ ] @hermes id:... on the same line
+        if re.match(r"^\s*- \[ \] ", line) and "@hermes" in line:
+            end = _block_end(lines, idx)
+            block = "\n".join(lines[idx:end]).strip()
+            pending.append(
+                {
+                    "id": _request_id(line, path, len(pending)),
+                    "path": path,
+                    "line": idx + 1,
+                    "text": block,
+                }
+            )
             continue
-        end = _block_end(lines, idx)
-        block = "\n".join(lines[idx:end]).strip()
-        pending.append(
-            {
-                "id": _request_id(line, path, len(pending)),
-                "path": path,
-                "line": idx + 1,
-                "text": block,
-            }
-        )
+        # Split-line format: @hermes id:... on a standalone line, - [ ] on the next
+        if _is_split_hermes(lines, idx):
+            j = _split_next_idx(lines, idx)
+            end = _block_end(lines, j)
+            block = "\n".join(lines[idx:end]).strip()
+            pending.append(
+                {
+                    "id": _request_id(line, path, len(pending)),
+                    "path": path,
+                    "line": idx + 1,
+                    "lines": [idx + 1, j + 1],  # both line numbers for _mark_request
+                    "text": block,
+                }
+            )
     return pending
 
 
@@ -62,12 +100,22 @@ def _mark_request(text: str, request_id: str, fields: List[str]) -> str:
         match = _ID_RE.search(line)
         if not match or match.group(1) != request_id:
             continue
-        if not re.match(r"^\s*- \[ \] ", line):
-            continue
-        end = _block_end(lines, idx)
-        lines[idx] = line.replace("- [ ]", "- [x]", 1)
-        lines[end:end] = fields
-        return "\n".join(lines) + "\n"
+
+        # Standard format: @hermes and - [ ] on the same line
+        if re.match(r"^\s*- \[ \] ", line):
+            end = _block_end(lines, idx)
+            lines[idx] = line.replace("- [ ]", "- [x]", 1)
+            lines[end:end] = fields
+            return "\n".join(lines) + "\n"
+
+        # Split-line format: @hermes on a standalone line, - [ ] on the next
+        j = _split_next_idx(lines, idx)
+        if j < len(lines) and re.match(r"^\s*- \[ \] ", lines[j]) and "@hermes" not in lines[j]:
+            end = _block_end(lines, j)
+            lines[j] = lines[j].replace("- [ ]", "- [x]", 1)
+            lines[end:end] = fields
+            return "\n".join(lines) + "\n"
+
     raise ValueError(f"pending request not found: {request_id}")
 
 

@@ -134,3 +134,78 @@ def test_append_request_log_entry_creates_heading_and_fields():
     assert "- at: 2026-04-25T20:00:00-03:00" in updated
     assert "- source: agent/oficio/inbox.md" in updated
     assert "summary written" in updated
+
+
+def test_find_pending_requests_detects_split_line_format():
+    text = """# Daily
+
+@hermes id:iterate-001
+- [ ] cheque os templates no Obsidian.
+
+Some other content.
+"""
+
+    pending = find_pending_requests("Daily/2026-04-25.md", text)
+
+    assert len(pending) == 1
+    assert pending[0]["id"] == "iterate-001"
+    assert pending[0]["path"] == "Daily/2026-04-25.md"
+    assert "cheque os templates" in pending[0]["text"]
+    assert "@hermes id:iterate-001" in pending[0]["text"]
+
+
+def test_find_pending_requests_split_line_ignores_standalone_hermes_without_checkbox():
+    text = """# Daily
+
+@hermes id:no-checkbox
+Some text without a checkbox item.
+
+- [ ] @hermes id:normal-001
+  This is a normal request.
+"""
+
+    pending = find_pending_requests("Daily/2026-04-25.md", text)
+
+    assert len(pending) == 1
+    assert pending[0]["id"] == "normal-001"
+
+
+def test_mark_request_completed_split_line_format():
+    text = """# Daily
+
+@hermes id:iterate-001
+- [ ] cheque os templates no Obsidian.
+"""
+
+    updated = mark_request_completed(
+        text,
+        "iterate-001",
+        "templates configurados",
+        timestamp="2026-04-25T21:00:00-03:00",
+    )
+
+    assert "- [x] cheque os templates no Obsidian." in updated
+    assert "- completed: 2026-04-25T21:00:00-03:00" in updated
+    assert "- note: templates configurados" in updated
+    assert "@hermes id:iterate-001" in updated  # preserved
+
+
+def test_mark_request_failed_split_line_format():
+    text = """# Daily
+
+@hermes id:iterate-001
+- [ ] cheque os templates no Obsidian.
+"""
+
+    updated = mark_request_failed(
+        text,
+        "iterate-001",
+        "templates folder not found",
+        timestamp="2026-04-25T21:00:00-03:00",
+    )
+
+    assert "- [x] cheque os templates no Obsidian." in updated
+    assert "- status: failed" in updated
+    assert "- failed: 2026-04-25T21:00:00-03:00" in updated
+    assert "- error: templates folder not found" in updated
+    assert "@hermes id:iterate-001" in updated  # preserved

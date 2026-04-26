@@ -17,7 +17,7 @@ except Exception:  # pragma: no cover - lets tests/imports run outside Hermes
         return json.dumps(payload, ensure_ascii=False)
 
 try:
-    from .oficio_config import load_config, resolve_inbox_path, resolve_log_path, vault_abspath
+    from .oficio_config import load_config, resolve_daily_path, resolve_inbox_path, resolve_log_path, vault_abspath
     from .oficio_obsidian import append_note, read_note, write_note
     from .oficio_protocol import (
         append_request_log_entry,
@@ -27,7 +27,7 @@ try:
         replace_once,
     )
 except Exception:  # pragma: no cover - direct import mode
-    from oficio_config import load_config, resolve_inbox_path, resolve_log_path, vault_abspath
+    from oficio_config import load_config, resolve_daily_path, resolve_inbox_path, resolve_log_path, vault_abspath
     from oficio_obsidian import append_note, read_note, write_note
     from oficio_protocol import (
         append_request_log_entry,
@@ -153,13 +153,36 @@ def _read_or_new_log(cfg: Dict[str, Any], path: str) -> str:
 
 def _handle_scan(args: Dict[str, Any], **kw: Any) -> str:
     cfg = load_config()
-    path = str(args.get("path") or resolve_inbox_path(cfg))
-    try:
-        text = _read_note_with_fallback(cfg, path)
-    except Exception as exc:
-        return tool_error(str(exc))
-    pending = find_pending_requests(path, text)
-    return tool_result({"success": True, "path": path, "pending": pending, "count": len(pending)})
+    explicit_path = str(args.get("path") or "").strip()
+
+    if explicit_path:
+        paths_to_scan = [explicit_path]
+    else:
+        paths_to_scan = [resolve_inbox_path(cfg)]
+        if cfg.get("scan_daily", True):
+            paths_to_scan.append(resolve_daily_path(cfg))
+
+    all_pending: List[Dict[str, object]] = []
+    errors: List[str] = []
+    for path in paths_to_scan:
+        try:
+            text = _read_note_with_fallback(cfg, path)
+            pending = find_pending_requests(path, text)
+            all_pending.extend(pending)
+        except Exception as exc:
+            errors.append(f"{path}: {exc}")
+
+    if not all_pending and errors and not explicit_path:
+        return tool_result({"success": True, "path": paths_to_scan[0], "pending": [], "count": 0, "scanned": paths_to_scan, "errors": errors})
+
+    return tool_result({
+        "success": True,
+        "path": explicit_path or paths_to_scan[0],
+        "pending": all_pending,
+        "count": len(all_pending),
+        "scanned": paths_to_scan if not explicit_path else [explicit_path],
+        "errors": errors if errors else None,
+    })
 
 
 def _handle_read(args: Dict[str, Any], **kw: Any) -> str:
@@ -258,23 +281,30 @@ def _handle_replace(args: Dict[str, Any], **kw: Any) -> str:
 def _session_start_context(*args: Any, **kwargs: Any) -> Dict[str, Any] | None:
     try:
         cfg = load_config(ensure=False)
-        path = resolve_inbox_path(cfg)
+        paths_to_scan = [resolve_inbox_path(cfg)]
+        if cfg.get("scan_daily", True):
+            paths_to_scan.append(resolve_daily_path(cfg))
+    except Exception:
+        return None
+
+    all_pending: List[Dict[str, object]] = []
+    for path in paths_to_scan:
         target = vault_abspath(cfg, path)
-    except Exception:
+        if not target.exists():
+            continue
+        try:
+            text = target.read_text()
+            pending = find_pending_requests(path, text)
+            all_pending.extend(pending)
+        except Exception:
+            continue
+
+    if not all_pending:
         return None
-    if not target.exists():
-        return None
-    try:
-        text = target.read_text()
-    except Exception:
-        return None
-    pending = find_pending_requests(path, text)
-    if not pending:
-        return None
-    ids = [str(item["id"]) for item in pending]
+    ids = [str(item["id"]) for item in all_pending]
     return {
-        "context": f"ofício: {len(pending)} pending request(s) in {path} — {', '.join(ids)}. Proactively inform the user and ask if they want these executed now.",
-        "oficio": {"pending_count": len(pending), "path": path, "ids": ids},
+        "context": f"ofício: {len(all_pending)} pending request(s) in {', '.join(paths_to_scan)} — {', '.join(ids)}. Proactively inform the user and ask if they want these executed now.",
+        "oficio": {"pending_count": len(all_pending), "paths": paths_to_scan, "ids": ids},
     }
 
 

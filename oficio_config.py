@@ -33,6 +33,8 @@ def default_config() -> Dict[str, Any]:
         "log_path": "agent/oficio/log.md",
         "log_daily_dir": "agent/oficio/log/daily",
         "use_daily_log": True,
+        "daily_path": "Daily",
+        "scan_daily": True,
         "timezone": "local",
         "memory_file": "agent/MEMORY.md",
         "user_file": "agent/USER.md",
@@ -139,6 +141,13 @@ def resolve_inbox_path(cfg: Dict[str, Any], date: str | None = None) -> str:
         return str(cfg["inbox_path"])
     day = date or today_string()
     daily_dir = str(cfg.get("inbox_daily_dir") or "agent/oficio/inbox/daily").rstrip("/")
+    return f"{daily_dir}/{day}.md"
+
+
+def resolve_daily_path(cfg: Dict[str, Any], date: str | None = None) -> str:
+    """Resolve the user's Obsidian daily note path for a given date."""
+    day = date or today_string()
+    daily_dir = str(cfg.get("daily_path") or "Daily").rstrip("/")
     return f"{daily_dir}/{day}.md"
 
 

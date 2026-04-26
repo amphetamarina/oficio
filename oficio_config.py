@@ -27,16 +27,8 @@ def default_config() -> Dict[str, Any]:
         "agent_dir": str(agent_dir),
         "config_dir": str(config_dir),
         "config_file": str(config_dir / "config.yaml"),
-        "inbox_path": "agent/oficio/inbox.md",
-        "inbox_daily_dir": "agent/oficio/inbox/daily",
-        "use_daily_inbox": False,
-        "log_path": "agent/oficio/log.md",
-        "log_daily_dir": "agent/oficio/log/daily",
-        "use_daily_log": True,
         "daily_path": "Daily",
         "scan_daily": True,
-        "scan_inbox": False,
-        "session_log_dir": "agent/oficio/sessions",
         "timezone": "local",
         "memory_file": "agent/MEMORY.md",
         "user_file": "agent/USER.md",
@@ -130,22 +122,6 @@ def today_string(now: datetime | None = None) -> str:
     return current.date().isoformat()
 
 
-def resolve_log_path(cfg: Dict[str, Any], date: str | None = None) -> str:
-    if not cfg.get("use_daily_log", True):
-        return str(cfg["log_path"])
-    day = date or today_string()
-    daily_dir = str(cfg.get("log_daily_dir") or "agent/oficio/log/daily").rstrip("/")
-    return f"{daily_dir}/{day}.md"
-
-
-def resolve_inbox_path(cfg: Dict[str, Any], date: str | None = None) -> str:
-    if not cfg.get("use_daily_inbox", False):
-        return str(cfg["inbox_path"])
-    day = date or today_string()
-    daily_dir = str(cfg.get("inbox_daily_dir") or "agent/oficio/inbox/daily").rstrip("/")
-    return f"{daily_dir}/{day}.md"
-
-
 def resolve_daily_path(cfg: Dict[str, Any], date: str | None = None) -> str:
     """Resolve the user's Obsidian daily note path for a given date."""
     day = date or today_string()
@@ -170,11 +146,8 @@ def _frontmatter(properties: Dict[str, Any]) -> str:
 
 
 def _ensure_workspace_files(cfg: Dict[str, Any]) -> None:
+    """Ensure auxiliary vault files exist (memory, user, soul)."""
     workspace_files = [
-        ("inbox", str(cfg["inbox_path"])),
-        ("inbox", resolve_inbox_path(cfg)),
-        ("legacy_log", str(cfg["log_path"])),
-        ("log", resolve_log_path(cfg)),
         ("plain", str(cfg["memory_file"])),
         ("plain", str(cfg["user_file"])),
         ("plain", str(cfg["soul_file"])),
@@ -187,16 +160,4 @@ def _ensure_workspace_files(cfg: Dict[str, Any]) -> None:
         path = vault_abspath(cfg, rel_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():
-            if kind == "inbox":
-                fm = _frontmatter({"tags": ["oficio/inbox"], "type": "inbox"})
-                content = fm + "# ofício inbox\n\n- [ ] @hermes id:example\n  Replace this example with a request, or delete it.\n"
-            elif kind == "log":
-                day = Path(rel_path).stem
-                fm = _frontmatter({"tags": ["oficio/log"], "type": "log", "date": day})
-                content = fm + f"# ofício log · {day}\n"
-            elif kind == "legacy_log":
-                fm = _frontmatter({"tags": ["oficio/log"], "type": "log"})
-                content = fm + "# ofício log\n"
-            else:
-                content = ""
-            path.write_text(content)
+            path.write_text("")

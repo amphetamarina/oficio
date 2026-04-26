@@ -18,43 +18,31 @@ except Exception:  # pragma: no cover - lets tests/imports run outside Hermes
         return json.dumps(payload, ensure_ascii=False)
 
 try:
-    from .oficio_config import _frontmatter, load_config, resolve_daily_path, resolve_inbox_path, resolve_log_path, today_string, vault_abspath
-    from .oficio_obsidian import append_note, read_note, write_note
+    from .oficio_config import load_config, resolve_daily_path, today_string, vault_abspath
+    from .oficio_obsidian import read_note, write_note
     from .oficio_protocol import (
         _find_max_auto_id,
-        append_inbox_request,
+        _get_current_session_id,
         find_pending_requests,
         mark_request_completed,
         mark_request_failed,
-        next_available_request_id,
-        render_summary_markdown,
-        render_summary_plain,
+        mark_request_in_progress,
         replace_once,
         request_exists,
-        slugify_request_id,
-        start_request_log_entry,
-        summarize_log_entries,
-        update_request_log_status,
         upsert_status_line,
     )
 except Exception:  # pragma: no cover - direct import mode
-    from oficio_config import _frontmatter, load_config, resolve_daily_path, resolve_inbox_path, resolve_log_path, today_string, vault_abspath
-    from oficio_obsidian import append_note, read_note, write_note
+    from oficio_config import load_config, resolve_daily_path, today_string, vault_abspath
+    from oficio_obsidian import read_note, write_note
     from oficio_protocol import (
         _find_max_auto_id,
-        append_inbox_request,
+        _get_current_session_id,
         find_pending_requests,
         mark_request_completed,
         mark_request_failed,
-        next_available_request_id,
-        render_summary_markdown,
-        render_summary_plain,
+        mark_request_in_progress,
         replace_once,
         request_exists,
-        slugify_request_id,
-        start_request_log_entry,
-        summarize_log_entries,
-        update_request_log_status,
         upsert_status_line,
     )
 
@@ -66,11 +54,11 @@ CONFIG_SCHEMA = {
 
 SCAN_SCHEMA = {
     "name": "oficio_scan",
-    "description": "Scan the ofício inbox for pending '- [ ] @hermes ...' requests.",
+    "description": "Scan the daily note for pending '- [ ] @hermes ...' requests.",
     "parameters": {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Vault-relative Markdown path. Defaults to configured/resolved inbox."}
+            "path": {"type": "string", "description": "Vault-relative daily note path. Defaults to today's daily note."}
         },
     },
 }
@@ -85,24 +73,14 @@ READ_SCHEMA = {
     },
 }
 
-APPEND_SCHEMA = {
-    "name": "oficio_append",
-    "description": "Append text to a vault note through obsidian-cli, using a vault-relative path.",
-    "parameters": {
-        "type": "object",
-        "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
-        "required": ["path", "content"],
-    },
-}
-
 COMPLETE_SCHEMA = {
     "name": "oficio_complete",
-    "description": "Mark an ofício request complete and append an audit entry to the daily log.",
+    "description": "Mark an ofício request complete with inline Status in the daily note.",
     "parameters": {
         "type": "object",
         "properties": {
             "id": {"type": "string"},
-            "path": {"type": "string", "description": "Vault-relative source path. Defaults to configured/resolved inbox."},
+            "path": {"type": "string", "description": "Vault-relative source path. Defaults to today's daily note."},
             "note": {"type": "string"},
             "line": {"type": "integer", "description": "Line number of the request (from scan output). Required for auto-generated IDs."},
         },
@@ -112,12 +90,12 @@ COMPLETE_SCHEMA = {
 
 FAIL_SCHEMA = {
     "name": "oficio_fail",
-    "description": "Mark an ofício request failed and append an audit entry to the daily log.",
+    "description": "Mark an ofício request failed with inline Status in the daily note.",
     "parameters": {
         "type": "object",
         "properties": {
             "id": {"type": "string"},
-            "path": {"type": "string", "description": "Vault-relative source path. Defaults to configured/resolved inbox."},
+            "path": {"type": "string", "description": "Vault-relative source path. Defaults to today's daily note."},
             "error": {"type": "string"},
             "line": {"type": "integer", "description": "Line number of the request (from scan output). Required for auto-generated IDs."},
         },
@@ -127,15 +105,15 @@ FAIL_SCHEMA = {
 
 START_SCHEMA = {
     "name": "oficio_start",
-    "description": "Mark an ofício request as in-progress by writing a pending entry to the daily log.",
+    "description": "Mark an ofício request as 'in progress' with inline Status in the daily note (checkbox unchanged).",
     "parameters": {
         "type": "object",
         "properties": {
             "id": {"type": "string"},
-            "summary": {"type": "string", "description": "Brief summary of what the agent is about to do."},
-            "path": {"type": "string", "description": "Vault-relative source path. Defaults to configured/resolved inbox."},
+            "path": {"type": "string", "description": "Vault-relative source path. Defaults to today's daily note."},
+            "line": {"type": "integer", "description": "Line number of the request (from scan output). Required for auto-generated IDs."},
         },
-        "required": ["id", "summary"],
+        "required": ["id"],
     },
 }
 
@@ -151,35 +129,8 @@ REPLACE_SCHEMA = {
 
 TODAY_SCHEMA = {
     "name": "oficio_today",
-    "description": "Show today's resolved ofício inbox and log paths.",
+    "description": "Show today's resolved ofício daily note path.",
     "parameters": {"type": "object", "properties": {}},
-}
-
-SUMMARY_SCHEMA = {
-    "name": "oficio_summary",
-    "description": "Aggregate recent daily logs into a compact plain-text or markdown summary.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "days": {"type": "integer", "description": "How many recent daily logs to scan.", "default": 7},
-            "status": {"type": "string", "description": "Filter by status: all|pending|completed|failed", "default": "all"},
-            "format": {"type": "string", "description": "Output format: plain|markdown", "default": "plain"},
-        },
-    },
-}
-
-REQUEST_SCHEMA = {
-    "name": "oficio_request",
-    "description": "Create a new pending @hermes follow-up request in the inbox.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "description": {"type": "string", "description": "Request text to add to the inbox."},
-            "id": {"type": "string", "description": "Optional explicit request id. Auto-generated if omitted."},
-            "path": {"type": "string", "description": "Vault-relative destination path. Defaults to configured/resolved inbox."},
-        },
-        "required": ["description"],
-    },
 }
 
 
@@ -198,23 +149,6 @@ def _read_note_with_fallback(cfg: Dict[str, Any], path: str) -> str:
         return target.read_text()
 
 
-def _read_or_new_log(cfg: Dict[str, Any], path: str) -> str:
-    try:
-        return _read_note_with_fallback(cfg, path)
-    except Exception:
-        title = Path(path).stem
-        date_str = title if title != "log" else ""
-        try:
-            from .oficio_config import _frontmatter  # type: ignore[import]
-        except Exception:
-            from oficio_config import _frontmatter  # type: ignore[import]
-        if date_str:
-            fm = _frontmatter({"tags": ["oficio/log"], "type": "log", "date": date_str})
-        else:
-            fm = _frontmatter({"tags": ["oficio/log"], "type": "log"})
-        return fm + f"# ofício log · {title}\n"
-
-
 def _handle_scan(args: Dict[str, Any], **kw: Any) -> str:
     cfg = load_config()
     explicit_path = str(args.get("path") or "").strip()
@@ -223,8 +157,6 @@ def _handle_scan(args: Dict[str, Any], **kw: Any) -> str:
         paths_to_scan = [explicit_path]
     else:
         paths_to_scan = [resolve_daily_path(cfg)]
-        if cfg.get("scan_inbox", False):
-            paths_to_scan.insert(0, resolve_inbox_path(cfg))
 
     all_pending: List[Dict[str, object]] = []
     errors: List[str] = []
@@ -269,41 +201,28 @@ def _handle_read(args: Dict[str, Any], **kw: Any) -> str:
         return tool_error(f"oficio_read failed: {exc}")
 
 
-def _handle_append(args: Dict[str, Any], **kw: Any) -> str:
-    cfg = load_config()
-    path = str(args.get("path") or "").strip()
-    content = str(args.get("content") or "")
-    if not path:
-        return tool_error("path is required")
-    if not content:
-        return tool_error("content is required")
-    try:
-        vault_abspath(cfg, path)
-        result = append_note(path, content)
-        return tool_result({"success": True, "path": path, "result": result})
-    except Exception as exc:
-        return tool_error(f"oficio_append failed: {exc}")
-
-
 def _handle_today(args: Dict[str, Any], **kw: Any) -> str:
     cfg = load_config()
-    return tool_result({"success": True, "inbox_path": resolve_inbox_path(cfg), "log_path": resolve_log_path(cfg)})
+    return tool_result({"success": True, "daily_path": resolve_daily_path(cfg)})
 
 
 def _handle_start(args: Dict[str, Any], **kw: Any) -> str:
     cfg = load_config()
     request_id = str(args.get("id") or "").strip()
-    summary = str(args.get("summary") or "").strip()
     source_path = str(args.get("path") or resolve_daily_path(cfg))
+    line_number = args.get("line")
+    if line_number is not None:
+        line_number = int(line_number)
     if not request_id:
         return tool_error("id is required")
-    if not summary:
-        return tool_error("summary is required")
     try:
         source = _read_note_with_fallback(cfg, source_path)
-        updated = upsert_status_line(source, request_id, f"in-progress - {summary}")
-        write_note(source_path, updated)
-        return tool_result({"success": True, "id": request_id, "status": "in-progress", "source_path": source_path})
+        session_id = _get_current_session_id()
+        updated_source = mark_request_in_progress(
+            source, request_id, session_id=session_id, line_number=line_number
+        )
+        write_note(source_path, updated_source)
+        return tool_result({"success": True, "id": request_id, "path": source_path, "session_id": session_id})
     except Exception as exc:
         return tool_error(f"oficio_start failed: {exc}")
 
@@ -321,26 +240,17 @@ def _handle_complete(args: Dict[str, Any], **kw: Any) -> str:
     if not note:
         return tool_error("note is required")
     try:
-        # Generate session log ID and path
-        session_id = datetime.now().strftime("%Y%m%d-%H%M%S")
-        session_log_rel = f"agent/oficio/sessions/session-{session_id}.md"
-
         source = _read_note_with_fallback(cfg, source_path)
+        session_id = _get_current_session_id()
         try:
-            updated_source = mark_request_completed(source, request_id, note, line_number=line_number, session_log=session_log_rel)
+            updated_source = mark_request_completed(source, request_id, note, line_number=line_number, session_id=session_id)
         except ValueError:
             if line_number is None or not request_exists(source, request_id):
                 raise
-            updated_source = mark_request_completed(source, request_id, note, session_log=session_log_rel)
+            updated_source = mark_request_completed(source, request_id, note, session_id=session_id)
         write_note(source_path, updated_source)
 
-        # Create session log note in vault
-        day = today_string()
-        fm = _frontmatter({"tags": ["oficio/session"], "type": "session", "date": day})
-        session_content = f"{fm}# Session session-{session_id}\n\n- request: {request_id}\n- status: completed\n- at: {datetime.now().astimezone().isoformat(timespec='seconds')}\n- source: {source_path}\n\n{note}\n"
-        write_note(session_log_rel, session_content)
-
-        return tool_result({"success": True, "id": request_id, "path": source_path, "session_log": session_log_rel})
+        return tool_result({"success": True, "id": request_id, "path": source_path, "session_id": session_id})
     except Exception as exc:
         return tool_error(f"oficio_complete failed: {exc}")
 
@@ -358,26 +268,17 @@ def _handle_fail(args: Dict[str, Any], **kw: Any) -> str:
     if not error:
         return tool_error("error is required")
     try:
-        # Generate session log ID and path
-        session_id = datetime.now().strftime("%Y%m%d-%H%M%S")
-        session_log_rel = f"agent/oficio/sessions/session-{session_id}.md"
-
         source = _read_note_with_fallback(cfg, source_path)
+        session_id = _get_current_session_id()
         try:
-            updated_source = mark_request_failed(source, request_id, error, line_number=line_number)
+            updated_source = mark_request_failed(source, request_id, error, line_number=line_number, session_id=session_id)
         except ValueError:
             if line_number is None or not request_exists(source, request_id):
                 raise
-            updated_source = mark_request_failed(source, request_id, error)
+            updated_source = mark_request_failed(source, request_id, error, session_id=session_id)
         write_note(source_path, updated_source)
 
-        # Create session log note in vault
-        day = today_string()
-        fm = _frontmatter({"tags": ["oficio/session"], "type": "session", "date": day})
-        session_content = f"{fm}# Session session-{session_id}\n\n- request: {request_id}\n- status: failed\n- at: {datetime.now().astimezone().isoformat(timespec='seconds')}\n- source: {source_path}\n\n{error}\n"
-        write_note(session_log_rel, session_content)
-
-        return tool_result({"success": True, "id": request_id, "path": source_path, "session_log": session_log_rel})
+        return tool_result({"success": True, "id": request_id, "path": source_path, "session_id": session_id})
     except Exception as exc:
         return tool_error(f"oficio_fail failed: {exc}")
 
@@ -398,66 +299,10 @@ def _handle_replace(args: Dict[str, Any], **kw: Any) -> str:
         return tool_error(f"oficio_replace failed: {exc}")
 
 
-def _handle_summary(args: Dict[str, Any], **kw: Any) -> str:
-    cfg = load_config()
-    days = int(args.get("days") or 7)
-    status_filter = str(args.get("status") or "all").strip().lower()
-    output_format = str(args.get("format") or "plain").strip().lower()
-    if days < 1:
-        return tool_error("days must be >= 1")
-    if status_filter not in {"all", "pending", "completed", "failed"}:
-        return tool_error("status must be one of: all, pending, completed, failed")
-    if output_format not in {"plain", "markdown"}:
-        return tool_error("format must be one of: plain, markdown")
-    try:
-        log_dir_rel = str(cfg.get("log_daily_dir") or "agent/oficio/log/daily").rstrip("/")
-        log_dir = vault_abspath(cfg, log_dir_rel)
-        if not log_dir.exists():
-            return tool_result({"success": True, "count": 0, "entries": [], "summary": ""})
-        files = sorted(log_dir.glob("*.md"), reverse=True)[:days]
-        entries: List[Dict[str, str]] = []
-        for file in reversed(files):
-            text = file.read_text()
-            entries.extend(
-                summarize_log_entries(
-                    text,
-                    source_path=f"{log_dir_rel}/{file.name}",
-                    default_date=file.stem,
-                )
-            )
-        if status_filter != "all":
-            entries = [entry for entry in entries if entry.get("status") == status_filter]
-        summary = render_summary_markdown(entries) if output_format == "markdown" else render_summary_plain(entries)
-        return tool_result({"success": True, "count": len(entries), "entries": entries, "summary": summary})
-    except Exception as exc:
-        return tool_error(f"oficio_summary failed: {exc}")
-
-
-def _handle_request(args: Dict[str, Any], **kw: Any) -> str:
-    cfg = load_config()
-    description = str(args.get("description") or "").strip()
-    target_path = str(args.get("path") or resolve_daily_path(cfg))
-    request_id = str(args.get("id") or "").strip()
-    if not description:
-        return tool_error("description is required")
-    try:
-        text = _read_note_with_fallback(cfg, target_path)
-        if not request_id:
-            log_text = _read_or_new_log(cfg, resolve_log_path(cfg))
-            request_id = next_available_request_id(slugify_request_id(description), text, log_text)
-        updated = append_inbox_request(text, description, request_id=request_id, marker=str(cfg.get("pending_marker") or "@hermes"))
-        write_note(target_path, updated)
-        return tool_result({"success": True, "id": request_id, "path": target_path})
-    except Exception as exc:
-        return tool_error(f"oficio_request failed: {exc}")
-
-
 def _session_start_context(*args: Any, **kwargs: Any) -> Dict[str, Any] | None:
     try:
         cfg = load_config(ensure=False)
         paths_to_scan = [resolve_daily_path(cfg)]
-        if cfg.get("scan_inbox", False):
-            paths_to_scan.insert(0, resolve_inbox_path(cfg))
     except Exception:
         return None
 
@@ -492,15 +337,13 @@ def _slash(raw_args: str) -> str:
         return _handle_scan({"path": path} if path else {})
     if sub == "today":
         return _handle_today({})
-    if sub == "start" and len(argv) >= 3:
-        return _handle_start({"id": argv[1], "summary": " ".join(argv[2:])})
     if sub == "complete" and len(argv) >= 3:
         return _handle_complete({"id": argv[1], "note": " ".join(argv[2:])})
     if sub == "fail" and len(argv) >= 3:
         return _handle_fail({"id": argv[1], "error": " ".join(argv[2:])})
-    if sub == "summary":
-        return _handle_summary({})
-    return "Usage: /oficio [scan [path]|config|status|today|start <id> <summary>|complete <id> <note...>|fail <id> <error...>|summary]"
+    if sub == "start" and len(argv) >= 2:
+        return _handle_start({"id": argv[1], "line": int(argv[2]) if len(argv) > 2 and argv[2].isdigit() else None})
+    return "Usage: /oficio [scan [path]|config|status|today|start <id> [line]|complete <id> <note...>|fail <id> <error...>]"
 
 
 def register(ctx) -> None:
@@ -508,19 +351,16 @@ def register(ctx) -> None:
     ctx.register_tool("oficio_config_show", "oficio", CONFIG_SCHEMA, _handle_config, emoji="📝")
     ctx.register_tool("oficio_scan", "oficio", SCAN_SCHEMA, _handle_scan, emoji="📝")
     ctx.register_tool("oficio_read", "oficio", READ_SCHEMA, _handle_read, emoji="📝")
-    ctx.register_tool("oficio_append", "oficio", APPEND_SCHEMA, _handle_append, emoji="📝")
     ctx.register_tool("oficio_start", "oficio", START_SCHEMA, _handle_start, emoji="📝")
     ctx.register_tool("oficio_complete", "oficio", COMPLETE_SCHEMA, _handle_complete, emoji="📝")
     ctx.register_tool("oficio_fail", "oficio", FAIL_SCHEMA, _handle_fail, emoji="📝")
     ctx.register_tool("oficio_replace", "oficio", REPLACE_SCHEMA, _handle_replace, emoji="📝")
     ctx.register_tool("oficio_today", "oficio", TODAY_SCHEMA, _handle_today, emoji="📝")
-    ctx.register_tool("oficio_summary", "oficio", SUMMARY_SCHEMA, _handle_summary, emoji="📝")
-    ctx.register_tool("oficio_request", "oficio", REQUEST_SCHEMA, _handle_request, emoji="📝")
     ctx.register_command(
         "oficio",
         _slash,
         description="Scan and inspect the ofício Obsidian command surface.",
-        args_hint="scan|config|status|today|start|complete|fail|summary",
+        args_hint="scan|config|status|today|start|complete|fail",
     )
     if hasattr(ctx, "register_hook"):
         ctx.register_hook("on_session_start", _session_start_context)

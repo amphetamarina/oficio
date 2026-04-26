@@ -82,7 +82,8 @@ def test_find_pending_requests_mixed_explicit_and_auto_ids():
     assert pending[0]["id"] == "explicit-one"
     assert pending[0]["has_explicit_id"] is True
     assert pending[1]["has_explicit_id"] is False
-    assert pending[1]["id"].endswith("-2")
+    # Explicit IDs don't consume auto-index slots; second is first auto
+    assert pending[1]["id"].endswith("-1")
 
 
 # ---------------------------------------------------------------------------

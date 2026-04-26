@@ -20,6 +20,7 @@ try:
     from .oficio_config import load_config, resolve_daily_path, resolve_inbox_path, resolve_log_path, vault_abspath
     from .oficio_obsidian import append_note, read_note, write_note
     from .oficio_protocol import (
+        _find_max_auto_id,
         append_request_log_entry,
         find_pending_requests,
         mark_request_completed,
@@ -32,6 +33,7 @@ except Exception:  # pragma: no cover - direct import mode
     from oficio_config import load_config, resolve_daily_path, resolve_inbox_path, resolve_log_path, vault_abspath
     from oficio_obsidian import append_note, read_note, write_note
     from oficio_protocol import (
+        _find_max_auto_id,
         append_request_log_entry,
         find_pending_requests,
         mark_request_completed,
@@ -184,10 +186,21 @@ def _handle_scan(args: Dict[str, Any], **kw: Any) -> str:
 
     all_pending: List[Dict[str, object]] = []
     errors: List[str] = []
+    # Pre-scan all files for existing auto-IDs so the counter continues
+    # from where previous completions left off
+    auto_index = 0
     for path in paths_to_scan:
         try:
             text = _read_note_with_fallback(cfg, path)
-            pending = find_pending_requests(path, text)
+            auto_index = max(auto_index, _find_max_auto_id(text))
+        except Exception:
+            pass
+    for path in paths_to_scan:
+        try:
+            text = _read_note_with_fallback(cfg, path)
+            pending = find_pending_requests(path, text, start_index=auto_index)
+            # Count auto-assigned IDs in this batch to offset the next file
+            auto_index += sum(1 for r in pending if not r.get("has_explicit_id"))
             all_pending.extend(pending)
         except Exception as exc:
             errors.append(f"{path}: {exc}")

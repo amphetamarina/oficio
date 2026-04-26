@@ -17,6 +17,23 @@ def _auto_id(index: int) -> str:
     return f"{date}-{index + 1}"
 
 
+def _find_max_auto_id(text: str) -> int:
+    """Find the highest auto-ID number for today's date in the given text.
+
+    Returns the max N found, or 0 if none exist. This lets subsequent scans
+    continue incrementing from where previous completions left off, since
+    _mark_request injects `id:YYYYMMDD-N` into the source line on completion.
+    """
+    date = datetime.now().strftime("%Y%m%d")
+    pattern = re.compile(rf"\bid:{date}-(\d+)\b")
+    max_n = 0
+    for m in pattern.finditer(text):
+        n = int(m.group(1))
+        if n > max_n:
+            max_n = n
+    return max_n
+
+
 def _request_id(body: str, path: str, index: int) -> str:
     """Extract explicit id:... or generate an auto-ID."""
     match = _ID_RE.search(body)
@@ -79,16 +96,20 @@ def _split_next_idx(lines: List[str], idx: int) -> int:
 # Scan
 # ---------------------------------------------------------------------------
 
-def find_pending_requests(path: str, text: str) -> List[Dict[str, object]]:
+def find_pending_requests(path: str, text: str, start_index: int = 0) -> List[Dict[str, object]]:
+    """Find pending @hermes requests. start_index offsets auto-ID counters (for multi-file scans)."""
     lines = text.splitlines()
     pending: List[Dict[str, object]] = []
+    auto_count = 0
     for idx, line in enumerate(lines):
         # Standard format: - [ ] @hermes ... on the same line
         if re.match(r"^\s*- \[ \] ", line) and "@hermes" in line:
             end = _block_end(lines, idx)
             block = "\n".join(lines[idx:end]).strip()
-            request_id = _request_id(line, path, len(pending))
             has_explicit = bool(_ID_RE.search(line))
+            request_id = _request_id(line, path, start_index + auto_count)
+            if not has_explicit:
+                auto_count += 1
             pending.append(
                 {
                     "id": request_id,
@@ -105,8 +126,10 @@ def find_pending_requests(path: str, text: str) -> List[Dict[str, object]]:
             end = _block_end(lines, j)
             block = "\n".join(lines[idx:end]).strip()
             # Use the standalone @hermes line for id detection
-            request_id = _request_id(line, path, len(pending))
             has_explicit = bool(_ID_RE.search(line))
+            request_id = _request_id(line, path, start_index + auto_count)
+            if not has_explicit:
+                auto_count += 1
             pending.append(
                 {
                     "id": request_id,

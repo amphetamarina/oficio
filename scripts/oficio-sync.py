@@ -101,6 +101,7 @@ def scan(cfg: Dict[str, Any], once: bool = False) -> Dict[str, Any]:
     new_requests: List[Dict[str, Any]] = []
     scanned: List[str] = []
     skipped: List[str] = []
+    auto_index = 0
 
     for rel_path in paths:
         try:
@@ -127,7 +128,8 @@ def scan(cfg: Dict[str, Any], once: bool = False) -> Dict[str, Any]:
 
         try:
             text = abspath.read_text()
-            pending = find_pending_requests(rel_path, text)
+            pending = find_pending_requests(rel_path, text, start_index=auto_index)
+            auto_index += sum(1 for r in pending if not r.get("has_explicit_id"))
 
             for req in pending:
                 req_id = str(req["id"])
@@ -139,11 +141,13 @@ def scan(cfg: Dict[str, Any], once: bool = False) -> Dict[str, Any]:
 
     # Prune seen_ids — keep only IDs that still exist as pending
     all_current_ids: List[str] = []
+    prune_index = 0
     for rel_path in paths:
         try:
             abspath = vault_abspath(cfg, rel_path)
             if abspath.exists():
-                pending = find_pending_requests(rel_path, abspath.read_text())
+                pending = find_pending_requests(rel_path, abspath.read_text(), start_index=prune_index)
+                prune_index += sum(1 for r in pending if not r.get("has_explicit_id"))
                 all_current_ids.extend(str(r["id"]) for r in pending)
         except Exception:
             pass

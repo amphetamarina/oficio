@@ -25,6 +25,8 @@ try:
         mark_request_completed,
         mark_request_failed,
         replace_once,
+        start_request_log_entry,
+        update_request_log_status,
     )
 except Exception:  # pragma: no cover - direct import mode
     from oficio_config import load_config, resolve_daily_path, resolve_inbox_path, resolve_log_path, vault_abspath
@@ -35,6 +37,8 @@ except Exception:  # pragma: no cover - direct import mode
         mark_request_completed,
         mark_request_failed,
         replace_once,
+        start_request_log_entry,
+        update_request_log_status,
     )
 
 CONFIG_SCHEMA = {
@@ -45,7 +49,7 @@ CONFIG_SCHEMA = {
 
 SCAN_SCHEMA = {
     "name": "oficio_scan",
-    "description": "Scan the ofício inbox for pending '- [ ] @hermes id:...' requests.",
+    "description": "Scan the ofício inbox for pending '- [ ] @hermes ...' requests.",
     "parameters": {
         "type": "object",
         "properties": {
@@ -81,8 +85,9 @@ COMPLETE_SCHEMA = {
         "type": "object",
         "properties": {
             "id": {"type": "string"},
-            "path": {"type": "string", "description": "Vault-relative inbox path. Defaults to configured/resolved inbox."},
+            "path": {"type": "string", "description": "Vault-relative source path. Defaults to configured/resolved inbox."},
             "note": {"type": "string"},
+            "line": {"type": "integer", "description": "Line number of the request (from scan output). Required for auto-generated IDs."},
         },
         "required": ["id", "note"],
     },
@@ -95,10 +100,25 @@ FAIL_SCHEMA = {
         "type": "object",
         "properties": {
             "id": {"type": "string"},
-            "path": {"type": "string", "description": "Vault-relative inbox path. Defaults to configured/resolved inbox."},
+            "path": {"type": "string", "description": "Vault-relative source path. Defaults to configured/resolved inbox."},
             "error": {"type": "string"},
+            "line": {"type": "integer", "description": "Line number of the request (from scan output). Required for auto-generated IDs."},
         },
         "required": ["id", "error"],
+    },
+}
+
+START_SCHEMA = {
+    "name": "oficio_start",
+    "description": "Mark an ofício request as in-progress by writing a pending entry to the daily log.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string"},
+            "summary": {"type": "string", "description": "Brief summary of what the agent is about to do."},
+            "path": {"type": "string", "description": "Vault-relative source path. Defaults to configured/resolved inbox."},
+        },
+        "required": ["id", "summary"],
     },
 }
 
@@ -218,22 +238,48 @@ def _handle_today(args: Dict[str, Any], **kw: Any) -> str:
     return tool_result({"success": True, "inbox_path": resolve_inbox_path(cfg), "log_path": resolve_log_path(cfg)})
 
 
+def _handle_start(args: Dict[str, Any], **kw: Any) -> str:
+    """Write a pending log entry when the agent starts working on a request."""
+    cfg = load_config()
+    request_id = str(args.get("id") or "").strip()
+    summary = str(args.get("summary") or "").strip()
+    source_path = str(args.get("path") or resolve_inbox_path(cfg))
+    if not request_id:
+        return tool_error("id is required")
+    if not summary:
+        return tool_error("summary is required")
+    try:
+        log_path = resolve_log_path(cfg)
+        log = _read_or_new_log(cfg, log_path)
+        updated_log = start_request_log_entry(log, request_id, source_path, summary)
+        write_note(log_path, updated_log)
+        return tool_result({"success": True, "id": request_id, "status": "pending", "log_path": log_path})
+    except Exception as exc:
+        return tool_error(f"oficio_start failed: {exc}")
+
+
 def _handle_complete(args: Dict[str, Any], **kw: Any) -> str:
     cfg = load_config()
     request_id = str(args.get("id") or "").strip()
     note = str(args.get("note") or "").strip()
     source_path = str(args.get("path") or resolve_inbox_path(cfg))
+    line_number = args.get("line")
+    if line_number is not None:
+        line_number = int(line_number)
     if not request_id:
         return tool_error("id is required")
     if not note:
         return tool_error("note is required")
     try:
         source = _read_note_with_fallback(cfg, source_path)
-        updated_source = mark_request_completed(source, request_id, note)
+        updated_source = mark_request_completed(
+            source, request_id, note, line_number=line_number
+        )
         write_note(source_path, updated_source)
         log_path = resolve_log_path(cfg)
         log = _read_or_new_log(cfg, log_path)
-        updated_log = append_request_log_entry(log, request_id, "completed", source_path, note)
+        # Update pending entry if it exists, otherwise append new
+        updated_log = update_request_log_status(log, request_id, "completed", note)
         write_note(log_path, updated_log)
         return tool_result({"success": True, "id": request_id, "path": source_path, "log_path": log_path})
     except Exception as exc:
@@ -245,17 +291,23 @@ def _handle_fail(args: Dict[str, Any], **kw: Any) -> str:
     request_id = str(args.get("id") or "").strip()
     error = str(args.get("error") or "").strip()
     source_path = str(args.get("path") or resolve_inbox_path(cfg))
+    line_number = args.get("line")
+    if line_number is not None:
+        line_number = int(line_number)
     if not request_id:
         return tool_error("id is required")
     if not error:
         return tool_error("error is required")
     try:
         source = _read_note_with_fallback(cfg, source_path)
-        updated_source = mark_request_failed(source, request_id, error)
+        updated_source = mark_request_failed(
+            source, request_id, error, line_number=line_number
+        )
         write_note(source_path, updated_source)
         log_path = resolve_log_path(cfg)
         log = _read_or_new_log(cfg, log_path)
-        updated_log = append_request_log_entry(log, request_id, "failed", source_path, error)
+        # Update pending entry if it exists, otherwise append new
+        updated_log = update_request_log_status(log, request_id, "failed", error)
         write_note(log_path, updated_log)
         return tool_result({"success": True, "id": request_id, "path": source_path, "log_path": log_path})
     except Exception as exc:
@@ -318,11 +370,13 @@ def _slash(raw_args: str) -> str:
         return _handle_scan({"path": path} if path else {})
     if sub == "today":
         return _handle_today({})
+    if sub == "start" and len(argv) >= 3:
+        return _handle_start({"id": argv[1], "summary": " ".join(argv[2:])})
     if sub == "complete" and len(argv) >= 3:
         return _handle_complete({"id": argv[1], "note": " ".join(argv[2:])})
     if sub == "fail" and len(argv) >= 3:
         return _handle_fail({"id": argv[1], "error": " ".join(argv[2:])})
-    return "Usage: /oficio [scan [path]|config|status|today|complete <id> <note...>|fail <id> <error...>]"
+    return "Usage: /oficio [scan [path]|config|status|today|start <id> <summary>|complete <id> <note...>|fail <id> <error...>]"
 
 
 def register(ctx) -> None:
@@ -331,6 +385,7 @@ def register(ctx) -> None:
     ctx.register_tool("oficio_scan", "oficio", SCAN_SCHEMA, _handle_scan, emoji="📝")
     ctx.register_tool("oficio_read", "oficio", READ_SCHEMA, _handle_read, emoji="📝")
     ctx.register_tool("oficio_append", "oficio", APPEND_SCHEMA, _handle_append, emoji="📝")
+    ctx.register_tool("oficio_start", "oficio", START_SCHEMA, _handle_start, emoji="📝")
     ctx.register_tool("oficio_complete", "oficio", COMPLETE_SCHEMA, _handle_complete, emoji="📝")
     ctx.register_tool("oficio_fail", "oficio", FAIL_SCHEMA, _handle_fail, emoji="📝")
     ctx.register_tool("oficio_replace", "oficio", REPLACE_SCHEMA, _handle_replace, emoji="📝")
@@ -339,7 +394,7 @@ def register(ctx) -> None:
         "oficio",
         _slash,
         description="Scan and inspect the ofício Obsidian command surface.",
-        args_hint="scan|config|status|today|complete|fail",
+        args_hint="scan|config|status|today|start|complete|fail",
     )
     if hasattr(ctx, "register_hook"):
         ctx.register_hook("on_session_start", _session_start_context)

@@ -2,7 +2,7 @@
 
 <img src="imagens/logo.png" width="600" />
 
-`0.0.3 · experimental`
+`0.0.6 · experimental`
 
 um ofício pede poucos instrumentos bem escolhidos e um único banco onde tudo está ao alcance da mão. este repositório contém um plugin Hermes que dá a agentes mãos explícitas para ler, escanear, marcar e escrever notas num cofre do Obsidian. não é catedral nem sistema operacional — é a oficina onde se trabalha bem.
 
@@ -110,18 +110,19 @@ _bons gestos viram automáticos. o efeito de cada ação deve ser visível antes
 
 ## o que existe hoje
 
-o plugin Hermes `oficio` (~300 linhas) expõe oito ferramentas e um gancho de sessão.
+o plugin Hermes `oficio` (~400 linhas) expõe nove ferramentas e um gancho de sessão.
 
 ### ferramentas
 
 | ferramenta | o que faz |
 |---|---|
-| `oficio_scan` | encontra pedidos `- [ ] @hermes id:...` no inbox e na daily note do dia |
+| `oficio_scan` | encontra pedidos `- [ ] @hermes ...` no inbox e na daily note do dia |
 | `oficio_read` | lê qualquer nota do cofre |
 | `oficio_append` | acrescenta texto a uma nota |
+| `oficio_start` | registra início de trabalho no log diário com status pending |
+| `oficio_complete` | marca pedido como `[x]` e atualiza entrada no log diário |
+| `oficio_fail` | marca falha com erro e atualiza entrada no log diário |
 | `oficio_replace` | troca uma string exata por outra (seguro, sem regex) |
-| `oficio_complete` | marca pedido como `[x]` e escreve entrada no log diário |
-| `oficio_fail` | marca falha com erro e registra no log diário |
 | `oficio_today` | mostra os caminhos de inbox e log do dia |
 | `oficio_config_show` | mostra a configuração ativa |
 
@@ -141,9 +142,17 @@ assim você pode chamar o agente do inbox (para pedidos persistentes) ou diretam
 ### formato dos pedidos
 
 ```markdown
+- [ ] @hermes descreva o que o agente deve fazer.
+```
+
+o `id:` é opcional. se omitido, o scan gera um ID automático no formato `YYYYMMDD-N` (data + contador do dia). se quiser um ID explícito:
+
+```markdown
 - [ ] @hermes id:meu-pedido
   descreva o que o agente deve fazer.
 ```
+
+a descrição pode seguir na mesma linha (para tarefas curtas) ou nas linhas seguintes indentadas.
 
 ### formato dos logs
 
@@ -158,6 +167,8 @@ logs diários vivem em `agent/oficio/log/daily/YYYY-MM-DD.md`. cada entrada é u
 
 resultado ou erro registrado aqui.
 ```
+
+quando o agente inicia uma tarefa, `oficio_start` escreve uma entrada com `status: pending`. ao completar ou falhar, o status é atualizado na mesma seção (de `pending` para `completed` ou `failed`).
 
 ### propriedades (novo em 0.0.3)
 
@@ -184,6 +195,7 @@ date: 2026-04-25
 /oficio scan [path]
 /oficio config
 /oficio today
+/oficio start <id> <resumo...>
 /oficio complete <id> <nota...>
 /oficio fail <id> <erro...>
 ```
@@ -202,12 +214,38 @@ o template usa placeholders `${1}`, `${2}`, `${0}` para navegação rápida entr
 
 a lista abaixo registra o que os princípios pedem mas a implementação atual ainda não cobre. cada item é uma decisão pendente, não uma promessa.
 
-- **sincronização como gatilho**: um gancho que reage a mudanças de sync e aciona o agente quando um novo pedido aparece. a arquitetura prevê isso, mas a versão atual depende de scan manual ou do gancho `on_session_start`.
-- **watcher de filesystem**: escuta contínua do inbox. o lugar natural é um cron visível do Hermes, não um daemon oculto. ainda não implementado.
 - **CALC / transformações inline**: selecionar texto no cofre, aplicar transformação (resumo, cálculo, reescrita) e ver o resultado no mesmo lugar. conceito documentado, implementação futura.
-- **plugins auxiliares no Obsidian**: a filosofia prefere poucos plugins, mas dataview ou quick-add podem reduzir atrito sem violar princípios. templates já estão disponíveis (`hermes-request`). a decisão sobre plugins adicionais ainda está aberta.
+- **plugins auxiliares no Obsidian**: a filosofia prefere poucos plugins, mas dataview ou quick-add podem reduzir atrito sem violar princípios. o template `hermes-request` já está disponível. a decisão sobre plugins adicionais ainda está aberta.
 - **agentes múltiplos simultâneos**: o protocolo suporta múltiplos agentes (cada um com seu marcador), mas o plugin atual só escaneia `@hermes`. generalização futura.
 - **inbox diário opcional**: a configuração prevê `use_daily_inbox`, mas o fluxo canônico usa um inbox único. a rota diária existe como possibilidade, não como padrão testado.
+
+## sincronização do cofre (novo em 0.0.5)
+
+o script `scripts/oficio-sync.py` implementa um scanner com debounce para detectar pedidos pendentes no inbox e na daily note:
+
+```bash
+# executar uma vez, ignorando debounce (útil para teste)
+python scripts/oficio-sync.py --once
+
+# executar uma vez, respeitando debounce de 15s
+python scripts/oficio-sync.py
+
+# loop contínuo (para terminal)
+python scripts/oficio-sync.py --watch
+```
+
+**debounce configurável**: por padrão, arquivos modificados há menos de 15 segundos são ignorados — a usuária ainda pode estar escrevendo. ajuste com a variável de ambiente `OFICIO_DEBOUNCE` (em segundos).
+
+**estado rastreado**: o script mantém um arquivo `.oficio-sync-state.json` no diretório `agent/` do cofre, lembrando quais ids já foram reportados. cada execução só emite pedidos *novos*.
+
+**integração com cron do Hermes**: o lugar natural para rodar o sync é um cron visível:
+
+```
+hermes cron create "oficio-sync" --every 1m \
+  --script scripts/oficio-sync.py
+```
+
+assim o agente é notificado automaticamente quando um novo pedido aparece, sem daemon oculto e com debounce respeitando o tempo de escrita.
 
 ## uso
 
@@ -227,17 +265,17 @@ fluxo real:
 1. escreva um pedido em qualquer um destes lugares:
    - **`agent/oficio/inbox.md`** — pedidos persistentes:
      ```markdown
-     - [ ] @hermes id:teste-001
-       leia este pedido e registre uma confirmação no log diário.
+     - [ ] @hermes resuma a daily note de hoje.
      ```
    - **sua daily note** (`Daily/YYYY-MM-DD.md`) — pedidos do dia, usando o template `hermes-request`.
 2. no Hermes, use `/oficio scan` ou peça ao agente para escanear (ele escaneia os dois lugares).
-3. depois de executar, o agente chama `oficio_complete` (ou `oficio_fail` se der erro).
-4. confira no Obsidian: a tarefa virou `[x]` e o log diário tem a entrada.
+3. ao iniciar o trabalho, o agente chama `oficio_start` para registrar status pending no log.
+4. depois de executar, o agente chama `oficio_complete` (ou `oficio_fail` se der erro).
+5. confira no Obsidian: a tarefa virou `[x]` e o log diário tem a entrada com status atualizado.
 
 ## estado
 
-versão 0.0.3. em uso pessoal, ainda exploratório. as convenções estabilizam em torno de uma tese: **Obsidian é a mesa, o cofre é a memória, agentes são mãos auxiliares.** contribuições bem-vindas. antes de propor recurso, pergunte se ele respeita um dos princípios acima. se existe só para conforto de catálogo, provavelmente não vai entrar.
+versão 0.0.6. em uso pessoal, ainda exploratório. as convenções estabilizam em torno de uma tese: **Obsidian é a mesa, o cofre é a memória, agentes são mãos auxiliares.** contribuições bem-vindas. antes de propor recurso, pergunte se ele respeita um dos princípios acima. se existe só para conforto de catálogo, provavelmente não vai entrar.
 
 ## licença
 

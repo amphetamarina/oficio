@@ -114,6 +114,109 @@ def test_complete_handler_writes_source_and_daily_log(tmp_path, monkeypatch):
     assert "done in test" in log.read_text()
 
 
+def test_complete_with_line_number_injects_auto_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config_dir = tmp_path / "Documents" / "amphetamarina" / "agent" / "oficio"
+    monkeypatch.setenv("OFICIO_CONFIG_DIR", str(config_dir))
+    plugin = load_plugin_module()
+    cfg = plugin.load_config()
+    Path(cfg["config_file"]).write_text(Path(cfg["config_file"]).read_text().replace("use_obsidian_cli: true", "use_obsidian_cli: false"))
+    cfg = plugin.load_config()
+    inbox_path = plugin.resolve_inbox_path(cfg)
+    inbox = vault_abspath(cfg, inbox_path)
+    inbox.write_text("# ofício inbox\n\n- [ ] @hermes do something without explicit id.\n")
+
+    raw = plugin._handle_complete({
+        "id": "20260425-1",
+        "note": "auto-id task done",
+        "line": 3,
+    })
+    payload = json.loads(raw)
+
+    assert payload["success"] is True
+    assert "- [x] @hermes id:20260425-1" in inbox.read_text()
+    assert "- note: auto-id task done" in inbox.read_text()
+    log = vault_abspath(cfg, payload["log_path"])
+    assert "## 20260425-1" in log.read_text()
+    assert "- status: completed" in log.read_text()
+
+
+def test_start_handler_creates_pending_log_entry(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config_dir = tmp_path / "Documents" / "amphetamarina" / "agent" / "oficio"
+    monkeypatch.setenv("OFICIO_CONFIG_DIR", str(config_dir))
+    plugin = load_plugin_module()
+    cfg = plugin.load_config()
+    Path(cfg["config_file"]).write_text(Path(cfg["config_file"]).read_text().replace("use_obsidian_cli: true", "use_obsidian_cli: false"))
+    cfg = plugin.load_config()
+
+    raw = plugin._handle_start({"id": "20260425-1", "summary": "summarizing daily notes"})
+    payload = json.loads(raw)
+
+    assert payload["success"] is True
+    assert payload["id"] == "20260425-1"
+    assert payload["status"] == "pending"
+    log = vault_abspath(cfg, payload["log_path"])
+    log_content = log.read_text()
+    assert "## 20260425-1" in log_content
+    assert "- status: pending" in log_content
+    assert "summarizing daily notes" in log_content
+
+
+def test_start_then_complete_updates_pending_to_completed(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config_dir = tmp_path / "Documents" / "amphetamarina" / "agent" / "oficio"
+    monkeypatch.setenv("OFICIO_CONFIG_DIR", str(config_dir))
+    plugin = load_plugin_module()
+    cfg = plugin.load_config()
+    Path(cfg["config_file"]).write_text(Path(cfg["config_file"]).read_text().replace("use_obsidian_cli: true", "use_obsidian_cli: false"))
+    cfg = plugin.load_config()
+    inbox_path = plugin.resolve_inbox_path(cfg)
+    inbox = vault_abspath(cfg, inbox_path)
+    inbox.write_text("# ofício inbox\n\n- [ ] @hermes id:task-xyz\n  do things.\n")
+
+    # 1. Start
+    raw_start = plugin._handle_start({"id": "task-xyz", "summary": "starting task xyz"})
+    assert json.loads(raw_start)["success"] is True
+
+    # 2. Complete
+    raw_complete = plugin._handle_complete({"id": "task-xyz", "note": "task xyz finished"})
+    assert json.loads(raw_complete)["success"] is True
+
+    # Verify log shows completed (updated from pending)
+    log = vault_abspath(cfg, json.loads(raw_complete)["log_path"])
+    log_content = log.read_text()
+    assert "## task-xyz" in log_content
+    assert "- status: completed" in log_content
+    assert "task xyz finished" in log_content
+    # Pending summary should still be there (it's part of the section body)
+    assert "starting task xyz" in log_content
+
+
+def test_fail_handler_with_line_number(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config_dir = tmp_path / "Documents" / "amphetamarina" / "agent" / "oficio"
+    monkeypatch.setenv("OFICIO_CONFIG_DIR", str(config_dir))
+    plugin = load_plugin_module()
+    cfg = plugin.load_config()
+    Path(cfg["config_file"]).write_text(Path(cfg["config_file"]).read_text().replace("use_obsidian_cli: true", "use_obsidian_cli: false"))
+    cfg = plugin.load_config()
+    inbox_path = plugin.resolve_inbox_path(cfg)
+    inbox = vault_abspath(cfg, inbox_path)
+    inbox.write_text("# ofício inbox\n\n- [ ] @hermes will fail.\n")
+
+    raw = plugin._handle_fail({
+        "id": "20260425-1",
+        "error": "something went wrong",
+        "line": 3,
+    })
+    payload = json.loads(raw)
+
+    assert payload["success"] is True
+    assert "- [x] @hermes id:20260425-1" in inbox.read_text()
+    assert "- error: something went wrong" in inbox.read_text()
+
+
 def test_replace_handler_rejects_absolute_path(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("OFICIO_CONFIG_DIR", str(tmp_path / "Documents" / "amphetamarina" / "agent" / "oficio"))
@@ -147,4 +250,5 @@ def test_register_degrades_when_ctx_has_no_hook_support(tmp_path, monkeypatch):
     plugin.register(ctx)
 
     assert "oficio_complete" in ctx.tools
+    assert "oficio_start" in ctx.tools
     assert "oficio" in ctx.commands

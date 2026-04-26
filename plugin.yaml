@@ -1,5 +1,5 @@
 name: oficio
-version: 0.0.4
+version: 0.0.6
 description: Obsidian-vault command surface for Hermes/ofício workflows.
 author: agentescognitivos
 kind: standalone
@@ -8,6 +8,7 @@ provides_tools:
   - oficio_scan
   - oficio_read
   - oficio_append
+  - oficio_start
   - oficio_complete
   - oficio_fail
   - oficio_replace

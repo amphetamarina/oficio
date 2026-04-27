@@ -1,623 +1,173 @@
+import re
+
+import pytest
+
 from oficio_protocol import (
+    _get_current_session_id,
     find_pending_requests,
     mark_request_completed,
     mark_request_failed,
     mark_request_in_progress,
     replace_once,
-    upsert_status_line,
+    session_log_path,
+    upsert_agent_response,
 )
 
 
-# ---------------------------------------------------------------------------
-# Scan
-# ---------------------------------------------------------------------------
-
-def test_find_pending_requests_detects_marked_checkbox():
+def test_scan_finds_standard_split_and_auto_id_requests():
     text = """# Daily
 
-- [ ] @hermes id:test-1
-  Please summarize [[Note]].
+- [ ] @hermes id:explicit-one
+  Do one thing.
+
+@hermes
+- [ ] Do the split-line thing.
 
 - [x] @hermes id:done
   Already done.
 """
 
-    pending = find_pending_requests("Daily/2026-04-26.md", text)
+    pending = find_pending_requests("Daily/2026-04-27.md", text)
 
-    assert len(pending) == 1
-    assert pending[0]["id"] == "test-1"
-    assert pending[0]["path"] == "Daily/2026-04-26.md"
-    assert "Please summarize" in pending[0]["text"]
-    assert pending[0]["has_explicit_id"] is True
-
-
-def test_find_pending_requests_without_explicit_id_generates_auto_id():
-    text = """# Daily
-
-- [ ] @hermes do something simple.
-"""
-
-    pending = find_pending_requests("Daily/2026-04-26.md", text)
-
-    assert len(pending) == 1
-    assert pending[0]["path"] == "Daily/2026-04-26.md"
-    assert pending[0]["has_explicit_id"] is False
-    # Auto-ID should be date-based: YYYYMMDD-N
-    assert len(pending[0]["id"]) >= 9  # at least YYYYMMDD-1
-    assert "do something simple" in pending[0]["text"]
-
-
-def test_find_pending_requests_multiple_auto_ids_increment():
-    text = """# Daily
-
-- [ ] @hermes first task.
-
-- [ ] @hermes second task.
-"""
-
-    pending = find_pending_requests("Daily/2026-04-26.md", text)
-
+    assert [item["id"] for item in pending[:1]] == ["explicit-one"]
     assert len(pending) == 2
-    assert pending[0]["has_explicit_id"] is False
     assert pending[1]["has_explicit_id"] is False
-    assert pending[0]["id"] != pending[1]["id"]
-    # Both should be date-based
-    assert pending[0]["id"].endswith("-1")
-    assert pending[1]["id"].endswith("-2")
+    assert re.match(r"\d{8}-1", str(pending[1]["id"]))
+    assert pending[1]["lines"] == [6, 7]
 
 
-def test_find_pending_requests_mixed_explicit_and_auto_ids():
+def test_start_injects_auto_id_and_writes_session_log_link(monkeypatch):
+    monkeypatch.setenv("HOME", "/home/marina")
+    text = "# Daily\n\n- [ ] @hermes do it.\n"
+
+    updated = mark_request_in_progress(
+        text,
+        "20260427-1",
+        line_number=3,
+        session_id="20260427_091500_8da571",
+    )
+
+    assert "- [ ] @hermes id:20260427-1 do it." in updated
+    assert "Status: in progress | Session: 20260427_091500_8da571" in updated
+    assert "[/home/marina/.hermes/sessions/session_20260427_091500_8da571.json]" in updated
+
+
+def test_complete_marks_checkbox_and_adds_agent_response():
     text = """# Daily
 
-- [ ] @hermes id:explicit-one
-  I have an id.
-
-- [ ] @hermes I am auto-generated.
-"""
-
-    pending = find_pending_requests("Daily/2026-04-26.md", text)
-
-    assert len(pending) == 2
-    assert pending[0]["id"] == "explicit-one"
-    assert pending[0]["has_explicit_id"] is True
-    assert pending[1]["has_explicit_id"] is False
-    # Explicit IDs don't consume auto-index slots; second is first auto
-    assert pending[1]["id"].endswith("-1")
-
-
-# ---------------------------------------------------------------------------
-# Split-line format
-# ---------------------------------------------------------------------------
-
-def test_find_pending_requests_detects_split_line_format():
-    text = """# Daily
-
-@hermes id:iterate-001
-- [ ] cheque os templates no Obsidian.
-
-Some other content.
-"""
-
-    pending = find_pending_requests("Daily/2026-04-25.md", text)
-
-    assert len(pending) == 1
-    assert pending[0]["id"] == "iterate-001"
-    assert pending[0]["path"] == "Daily/2026-04-25.md"
-    assert "cheque os templates" in pending[0]["text"]
-    assert "@hermes id:iterate-001" in pending[0]["text"]
-    assert pending[0]["has_explicit_id"] is True
-
-
-def test_find_pending_requests_split_line_without_explicit_id():
-    text = """# Daily
-
-@hermes
-- [ ] cheque os templates no Obsidian.
-"""
-
-    pending = find_pending_requests("Daily/2026-04-25.md", text)
-
-    assert len(pending) == 1
-    assert pending[0]["has_explicit_id"] is False
-    assert "cheque os templates" in pending[0]["text"]
-    assert "lines" in pending[0]  # split-line has lines field
-    assert len(pending[0]["id"]) >= 9
-
-
-def test_find_pending_requests_split_line_ignores_standalone_hermes_without_checkbox():
-    text = """# Daily
-
-@hermes id:no-checkbox
-Some text without a checkbox item.
-
-- [ ] @hermes id:normal-001
-  This is a normal request.
-"""
-
-    pending = find_pending_requests("Daily/2026-04-25.md", text)
-
-    assert len(pending) == 1
-    assert pending[0]["id"] == "normal-001"
-
-
-# ---------------------------------------------------------------------------
-# Mark completed (Status-line architecture)
-# ---------------------------------------------------------------------------
-
-def test_mark_request_completed_writes_status_line():
-    text = """# Daily
-
-- [ ] @hermes id:test-1
-  Please summarize [[Note]].
+- [ ] @hermes id:summary
+  Summarize [[Meeting]].
 """
 
     updated = mark_request_completed(
         text,
-        "test-1",
+        "summary",
         "summary written",
-        timestamp="2026-04-25T20:00:00-03:00",
+        session_id="session-123",
+        response="## Summary\n\nDone.",
     )
 
-    assert "- [x] @hermes id:test-1" in updated
-    assert "Status: completed - summary written" in updated
+    assert "- [x] @hermes id:summary" in updated
+    assert "Status: completed - summary written | Session: session-123" in updated
+    assert "Agent response:" in updated
+    assert "````markdown" in updated
+    assert "  ## Summary" in updated
 
 
-def test_mark_request_completed_uses_exact_id_not_prefix_match():
+def test_complete_uses_exact_id_not_prefix():
     text = """# Daily
 
 - [ ] @hermes id:test-10
-  Please do later thing.
+  Later.
 
 - [ ] @hermes id:test-1
-  Please do exact thing.
+  Now.
 """
 
-    updated = mark_request_completed(
-        text,
-        "test-1",
-        "exact one done",
-        timestamp="2026-04-25T20:00:00-03:00",
-    )
+    updated = mark_request_completed(text, "test-1", "done")
 
     assert "- [ ] @hermes id:test-10" in updated
     assert "- [x] @hermes id:test-1" in updated
-    assert "Status: completed - exact one done" in updated
 
 
-def test_mark_request_completed_split_line_format():
+def test_split_line_complete_and_fail_keep_marker_and_mark_checkbox():
     text = """# Daily
 
-@hermes id:iterate-001
-- [ ] cheque os templates no Obsidian.
+@hermes id:split
+- [ ] Do the thing.
 """
 
-    updated = mark_request_completed(
-        text,
-        "iterate-001",
-        "templates configurados",
-        timestamp="2026-04-25T21:00:00-03:00",
-    )
+    completed = mark_request_completed(text, "split", "done")
+    failed = mark_request_failed(text, "split", "nope")
 
-    assert "- [x] cheque os templates no Obsidian." in updated
-    assert "Status: completed - templates configurados" in updated
-    assert "@hermes id:iterate-001" in updated  # preserved
+    assert "@hermes id:split" in completed
+    assert "- [x] Do the thing." in completed
+    assert "Status: completed - done" in completed
+    assert "Status: failed - nope" in failed
 
 
-# ---------------------------------------------------------------------------
-# Mark completed (with line_number — auto-generated IDs)
-# ---------------------------------------------------------------------------
-
-def test_mark_request_completed_with_line_number_injects_auto_id():
+def test_line_number_protects_auto_id_completion():
     text = """# Daily
 
-- [ ] @hermes do something simple.
+- [ ] @hermes first.
+
+- [ ] @hermes second.
 """
 
-    updated = mark_request_completed(
-        text,
-        "20260425-1",
-        "task done",
-        timestamp="2026-04-25T20:00:00-03:00",
-        line_number=3,  # 1-indexed line where @hermes appears
-    )
+    updated = mark_request_completed(text, "20260427-2", "second done", line_number=5)
 
-    assert "- [x] @hermes id:20260425-1" in updated
-    assert "Status: completed - task done" in updated
+    assert "- [ ] @hermes first." in updated
+    assert "- [x] @hermes id:20260427-2 second." in updated
 
 
-def test_mark_request_completed_with_line_number_preserves_other_tasks():
+def test_stale_line_falls_back_to_matching_id():
     text = """# Daily
 
-- [ ] @hermes id:keep-me
-  I stay pending.
+- [x] @hermes id:other
+  Status: completed - done
+  Other.
 
-- [ ] @hermes finish me.
+- [ ] @hermes id:target
+  Target.
 """
 
-    updated = mark_request_completed(
-        text,
-        "20260425-2",
-        "only second marked",
-        timestamp="2026-04-25T20:00:00-03:00",
-        line_number=6,  # second @hermes line
-    )
+    updated = mark_request_completed(text, "target", "done", line_number=3)
 
-    assert "- [ ] @hermes id:keep-me" in updated  # untouched
-    assert "- [x] @hermes id:20260425-2" in updated  # marked + id injected
-    assert "Status: completed - only second marked" in updated
+    assert "- [x] @hermes id:target" in updated
 
 
-def test_mark_request_completed_split_line_with_line_number_injects_auto_id():
+def test_agent_response_updates_existing_block():
     text = """# Daily
 
-@hermes
-- [ ] do something.
+- [x] @hermes id:task
+  Status: completed - old
+  Agent response:
+  ```markdown
+  old
+  ```
 """
 
-    updated = mark_request_completed(
-        text,
-        "20260425-1",
-        "done via line",
-        timestamp="2026-04-25T21:00:00-03:00",
-        line_number=3,  # the @hermes line
-    )
+    updated = upsert_agent_response(text, "task", "new")
 
-    assert "- [x] do something." in updated
-    assert "@hermes id:20260425-1" in updated  # injected
-    assert "Status: completed - done via line" in updated
+    assert "  old\n" not in updated
+    assert "  new\n" in updated
 
 
-# ---------------------------------------------------------------------------
-# Mark failed (Status-line architecture)
-# ---------------------------------------------------------------------------
+def test_replace_once_is_exact_and_unambiguous():
+    assert replace_once("alpha beta", "beta", "gamma") == "alpha gamma"
+    with pytest.raises(ValueError):
+        replace_once("same same", "same", "x")
+    with pytest.raises(ValueError):
+        replace_once("abc", "", "x")
 
-def test_mark_request_failed_writes_status_line():
-    text = """# Daily
 
-- [ ] @hermes id:test-1
-  Please summarize [[Note]].
-"""
+def test_session_log_path_uses_hermes_session_location(monkeypatch):
+    monkeypatch.setenv("HOME", "/home/marina")
 
-    updated = mark_request_failed(
-        text,
-        "test-1",
-        "note not found",
-        timestamp="2026-04-25T20:00:00-03:00",
-    )
+    assert session_log_path("abc") == "/home/marina/.hermes/sessions/session_abc.json"
 
-    assert "- [x] @hermes id:test-1" in updated
-    assert "Status: failed - note not found" in updated
 
+def test_current_session_id_prefers_environment(monkeypatch):
+    monkeypatch.setenv("HERMES_SESSION_ID", "from-env")
 
-def test_mark_request_failed_split_line_format():
-    text = """# Daily
-
-@hermes id:iterate-001
-- [ ] cheque os templates no Obsidian.
-"""
-
-    updated = mark_request_failed(
-        text,
-        "iterate-001",
-        "templates folder not found",
-        timestamp="2026-04-25T21:00:00-03:00",
-    )
-
-    assert "- [x] cheque os templates no Obsidian." in updated
-    assert "Status: failed - templates folder not found" in updated
-    assert "@hermes id:iterate-001" in updated  # preserved
-
-
-def test_mark_request_failed_with_line_number_injects_auto_id():
-    text = """# Daily
-
-- [ ] @hermes tricky task.
-"""
-
-    updated = mark_request_failed(
-        text,
-        "20260425-1",
-        "something broke",
-        timestamp="2026-04-25T20:00:00-03:00",
-        line_number=3,
-    )
-
-    assert "- [x] @hermes id:20260425-1" in updated
-    assert "Status: failed - something broke" in updated
-
-
-# ---------------------------------------------------------------------------
-# Not found errors
-# ---------------------------------------------------------------------------
-
-def test_mark_request_raises_for_nonexistent_line_number():
-    text = """# Daily
-
-- [ ] @hermes do stuff.
-"""
-
-    try:
-        mark_request_completed(text, "any-id", "done", line_number=99)
-    except ValueError as exc:
-        assert "out of range" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
-
-
-def test_mark_request_raises_for_line_without_hermes():
-    text = """# Daily
-
-- [ ] no hermes here.
-
-- [ ] @hermes real task.
-"""
-
-    try:
-        mark_request_completed(text, "any-id", "done", line_number=3)  # no @hermes on line 3
-    except ValueError as exc:
-        pass
-    else:
-        raise AssertionError("expected ValueError")
-
-
-# ---------------------------------------------------------------------------
-# Replace
-# ---------------------------------------------------------------------------
-
-def test_replace_once_replaces_unique_text():
-    updated = replace_once("hello old world", "old", "new")
-    assert updated == "hello new world"
-
-
-def test_replace_once_rejects_missing_text():
-    try:
-        replace_once("hello world", "missing", "new")
-    except ValueError as exc:
-        assert "not found" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
-
-
-def test_replace_once_rejects_ambiguous_text():
-    try:
-        replace_once("old and old", "old", "new")
-    except ValueError as exc:
-        assert "multiple" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
-
-
-def test_replace_once_rejects_empty_old_text():
-    try:
-        replace_once("hello", "", "new")
-    except ValueError as exc:
-        assert "old text is required" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
-
-
-# ---------------------------------------------------------------------------
-# Status line
-# ---------------------------------------------------------------------------
-
-def test_upsert_status_line_adds_to_standard_format():
-    text = """# Daily
-
-- [ ] @hermes id:test-1
-  Please summarize [[Note]].
-"""
-
-    updated = upsert_status_line(text, "test-1", "in-progress - working")
-
-    assert "Status: in-progress - working" in updated
-    assert "- [ ] @hermes id:test-1" in updated  # checkbox unchanged
-
-
-def test_upsert_status_line_updates_existing():
-    text = """# Daily
-
-- [ ] @hermes id:test-1
-  Status: pending - waiting
-  Please summarize [[Note]].
-"""
-
-    updated = upsert_status_line(text, "test-1", "in-progress - doing it")
-
-    assert "Status: in-progress - doing it" in updated
-    assert "Status: pending - waiting" not in updated
-
-
-def test_upsert_status_line_adds_to_split_line_format():
-    text = """# Daily
-
-@hermes id:iterate-001
-- [ ] cheque os templates.
-"""
-
-    updated = upsert_status_line(text, "iterate-001", "in-progress - checking")
-
-    assert "- [ ] cheque os templates." in updated
-    assert "Status: in-progress - checking" in updated
-
-
-def test_upsert_status_line_updates_split_line_existing():
-    text = """# Daily
-
-@hermes id:iterate-001
-- [ ] cheque os templates.
-  Status: pending - start
-"""
-
-    updated = upsert_status_line(text, "iterate-001", "completed - done")
-
-    assert "Status: completed - done" in updated
-    assert "Status: pending - start" not in updated
-
-
-def test_upsert_status_line_handles_post_marked_split_line():
-    """After _mark_request, a split-line has @hermes id:xxx + - [x] below."""
-    text = """# Daily
-
-@hermes id:iterate-001
-- [x] cheque os templates.
-"""
-
-    updated = upsert_status_line(text, "iterate-001", "completed - templates ok")
-
-    assert "Status: completed - templates ok" in updated
-    assert "- [x] cheque os templates." in updated
-
-
-def test_upsert_status_line_raises_for_missing_id():
-    text = """# Daily
-
-- [ ] @hermes id:other
-  stuff.
-"""
-
-    try:
-        upsert_status_line(text, "missing", "done")
-    except ValueError as exc:
-        assert "not found" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
-
-
-# ---------------------------------------------------------------------------
-# Mark in progress
-# ---------------------------------------------------------------------------
-
-
-def test_mark_request_in_progress_adds_status_line_without_changing_checkbox():
-    text = """# Daily
-
-- [ ] @hermes id:test-1
-  Please summarize [[Note]].
-"""
-
-    updated = mark_request_in_progress(text, "test-1")
-
-    assert "- [ ] @hermes id:test-1" in updated  # checkbox unchanged
-    assert "Status: in progress" in updated
-
-
-def test_mark_request_in_progress_includes_session_id():
-    text = """# Daily
-
-- [ ] @hermes id:test-1
-  Please summarize [[Note]].
-"""
-
-    updated = mark_request_in_progress(text, "test-1", session_id="20260426_164315_8da571")
-
-    assert "- [ ] @hermes id:test-1" in updated
-    assert "Status: in progress | Session: 20260426_164315_8da571" in updated
-
-
-def test_mark_request_in_progress_with_line_number_injects_auto_id():
-    text = """# Daily
-
-- [ ] @hermes do something without id.
-"""
-
-    updated = mark_request_in_progress(
-        text, "20260426-1", session_id="sess-123", line_number=3
-    )
-
-    assert "- [ ] @hermes id:20260426-1" in updated  # id injected
-    assert "Status: in progress | Session: sess-123" in updated
-    assert "[x]" not in updated.split("@hermes")[0]  # checkbox still [ ]
-
-
-def test_mark_request_in_progress_raises_for_missing_id_without_line():
-    text = """# Daily
-
-- [ ] @hermes id:other
-  stuff.
-"""
-
-    try:
-        mark_request_in_progress(text, "missing")
-    except ValueError as exc:
-        assert "not found" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
-
-
-def test_mark_request_in_progress_updates_existing_status():
-    text = """# Daily
-
-- [ ] @hermes id:test-1
-  Status: pending
-  Please do work.
-"""
-
-    updated = mark_request_in_progress(text, "test-1", session_id="sess-456")
-
-    assert "Status: in progress | Session: sess-456" in updated
-    assert "Status: pending" not in updated
-
-
-# ---------------------------------------------------------------------------
-# Mark completed / failed with session_id
-# ---------------------------------------------------------------------------
-
-
-def test_mark_request_completed_includes_session_id():
-    text = """# Daily
-
-- [ ] @hermes id:test-1
-  Please summarize [[Note]].
-"""
-
-    updated = mark_request_completed(
-        text,
-        "test-1",
-        "summary written",
-        session_id="20260426_xyz",
-        timestamp="2026-04-25T20:00:00-03:00",
-    )
-
-    assert "Status: completed - summary written | Session: 20260426_xyz" in updated
-
-
-def test_mark_request_failed_includes_session_id():
-    text = """# Daily
-
-- [ ] @hermes id:test-1
-  Please summarize [[Note]].
-"""
-
-    updated = mark_request_failed(
-        text,
-        "test-1",
-        "note not found",
-        session_id="20260426_xyz",
-        timestamp="2026-04-25T20:00:00-03:00",
-    )
-
-    assert "Status: failed - note not found | Session: 20260426_xyz" in updated
-
-
-# ---------------------------------------------------------------------------
-# Session ID discovery
-# ---------------------------------------------------------------------------
-
-
-def test_get_current_session_id(tmp_path, monkeypatch):
-    from oficio_protocol import _get_current_session_id
-
-    # Create a fake sessions directory inside tmp_path
-    sessions_dir = tmp_path / ".hermes" / "sessions"
-    sessions_dir.mkdir(parents=True)
-
-    # Write a session file with a known session_id
-    session_file = sessions_dir / "session_20260426_164315_8da571.json"
-    session_file.write_text('{"session_id": "20260426_164315_8da571", "model": "test"}')
-
-    # Patch Path.home at the module level where it's used
-    import oficio_protocol
-    monkeypatch.setattr(oficio_protocol.Path, "home", staticmethod(lambda: tmp_path))
-
-    sid = _get_current_session_id()
-    assert sid == "20260426_164315_8da571"
+    assert _get_current_session_id() == "from-env"

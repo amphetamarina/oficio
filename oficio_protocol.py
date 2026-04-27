@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
-_PENDING_RE = re.compile(r"^(?P<indent>\s*)- \[ \] (?P<body>.*@hermes\b.*)$", re.MULTILINE)
 _ID_RE = re.compile(r"\bid:([A-Za-z0-9_.:-]+)")
 _STATUS_LINE_RE = re.compile(r"^(\s+)Status:\s*(.+)$")
+_RESPONSE_LABEL_RE = re.compile(r"^\s*Agent response:\s*$")
 
 # ---------------------------------------------------------------------------
 # ID generation
@@ -96,7 +97,10 @@ def _timestamp(timestamp: str | None = None) -> str:
 
 
 def _get_current_session_id() -> str:
-    """Discover the current Hermes session ID from the most recent session file."""
+    """Best-effort fallback for old callers that do not pass session_id."""
+    env_session = os.environ.get("HERMES_SESSION_ID", "").strip()
+    if env_session:
+        return env_session
     sessions_dir = Path.home() / ".hermes" / "sessions"
     if not sessions_dir.exists():
         return ""
@@ -112,6 +116,26 @@ def _get_current_session_id() -> str:
         return str(data.get("session_id", ""))
     except Exception:
         return ""
+
+
+def session_log_path(session_id: str) -> str:
+    if not session_id:
+        return ""
+    return str(Path.home() / ".hermes" / "sessions" / f"session_{session_id}.json")
+
+
+def session_log_link(session_id: str) -> str:
+    path = session_log_path(session_id)
+    if not path:
+        return ""
+    return f"[{path}](file://{path})"
+
+
+def format_status(status: str, *, session_id: str = "") -> str:
+    message = status
+    if session_id:
+        message += f" | Session: {session_id} | Log: {session_log_link(session_id)}"
+    return message
 
 
 # ---------------------------------------------------------------------------
@@ -286,10 +310,9 @@ def mark_request_completed(
     timestamp: str | None = None,
     line_number: int | None = None,
     session_id: str = "",
+    response: str = "",
 ) -> str:
-    status_msg = f"completed - {note}"
-    if session_id:
-        status_msg += f" | Session: {session_id}"
+    status_msg = format_status(f"completed - {note}", session_id=session_id)
 
     try:
         intermediate = _mark_request(text, request_id, [], line_number=line_number)
@@ -298,7 +321,10 @@ def mark_request_completed(
             raise
         intermediate = _mark_request(text, request_id, [])
 
-    return upsert_status_line(intermediate, request_id, status_msg)
+    updated = upsert_status_line(intermediate, request_id, status_msg)
+    if response.strip():
+        updated = upsert_agent_response(updated, request_id, response)
+    return updated
 
 
 def mark_request_failed(
@@ -310,9 +336,7 @@ def mark_request_failed(
     line_number: int | None = None,
     session_id: str = "",
 ) -> str:
-    status_msg = f"failed - {error}"
-    if session_id:
-        status_msg += f" | Session: {session_id}"
+    status_msg = format_status(f"failed - {error}", session_id=session_id)
 
     try:
         intermediate = _mark_request(text, request_id, [], line_number=line_number)
@@ -358,9 +382,7 @@ def mark_request_in_progress(
                 )
             intermediate = "\n".join(lines) + "\n"
 
-    status_msg = f"in progress"
-    if session_id:
-        status_msg += f" | Session: {session_id}"
+    status_msg = format_status("in progress", session_id=session_id)
 
     return upsert_status_line(intermediate, request_id, status_msg)
 
@@ -440,5 +462,59 @@ def upsert_status_line(text: str, request_id: str, status_message: str) -> str:
                     lines.insert(j + 1, new_status)
 
                 return "\n".join(lines) + "\n"
+
+    raise ValueError(f"pending request not found: {request_id}")
+
+
+def _response_block(response: str) -> List[str]:
+    fence = "````"
+    while fence in response:
+        fence += "`"
+    lines = ["  Agent response:", f"  {fence}markdown"]
+    lines.extend(f"  {line}" if line else "  " for line in response.strip().splitlines())
+    lines.append(f"  {fence}")
+    return lines
+
+
+def upsert_agent_response(text: str, request_id: str, response: str) -> str:
+    lines = text.splitlines()
+
+    for idx, line in enumerate(lines):
+        if "@hermes" not in line:
+            continue
+        match = _ID_RE.search(line)
+        if not match or match.group(1) != request_id:
+            continue
+
+        checkbox_idx = idx if re.match(r"^\s*- \[\s*[ x]\]", line) else _split_next_idx(lines, idx)
+        if checkbox_idx >= len(lines):
+            break
+        end = _block_end(lines, checkbox_idx)
+
+        status_idx = None
+        response_idx = None
+        for i in range(idx + 1, end):
+            if status_idx is None and _STATUS_LINE_RE.match(lines[i]):
+                status_idx = i
+            if _RESPONSE_LABEL_RE.match(lines[i]):
+                response_idx = i
+                break
+
+        insert_at = (status_idx + 1) if status_idx is not None else (checkbox_idx + 1)
+        if response_idx is not None:
+            fence = lines[response_idx + 1].strip() if response_idx + 1 < end else ""
+            remove_until = response_idx + 1
+            if fence.startswith("```"):
+                remove_until += 1
+                while remove_until < end and lines[remove_until].strip() != fence:
+                    remove_until += 1
+                remove_until = min(remove_until + 1, end)
+            else:
+                remove_until = response_idx + 1
+            del lines[response_idx:remove_until]
+            insert_at = response_idx
+
+        lines[insert_at:insert_at] = _response_block(response)
+        return "\n".join(lines) + "\n"
 
     raise ValueError(f"pending request not found: {request_id}")

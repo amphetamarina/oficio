@@ -1,9 +1,8 @@
 const { Plugin, Notice } = require('obsidian');
 const { spawn } = require('child_process');
-const fs = require('fs');
-const path = require('path');
 
 const DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
+const SETTLE_MS = 2000;
 
 module.exports = class OficioTriggerPlugin extends Plugin {
     async onload() {
@@ -27,15 +26,12 @@ module.exports = class OficioTriggerPlugin extends Plugin {
     }
 
     async _onFileModified(file) {
-        // Only watch daily notes and oficio inbox
+        // Only watch daily notes.
         const dailyFolder = 'Daily';
-        const inboxPath = 'agent/oficio/inbox.md';
         const filePath = file.path;
 
         const isDaily = filePath.startsWith(dailyFolder + '/') && filePath.endsWith('.md');
-        const isInbox = filePath === inboxPath;
-
-        if (!isDaily && !isInbox) {
+        if (!isDaily) {
             return;
         }
 
@@ -55,7 +51,7 @@ module.exports = class OficioTriggerPlugin extends Plugin {
         this.pendingCheck = setTimeout(async () => {
             this.pendingCheck = null;
             await this._checkAndTrigger(file);
-        }, 2000);
+        }, SETTLE_MS);
     }
 
     async _checkAndTrigger(file) {
@@ -134,17 +130,24 @@ module.exports = class OficioTriggerPlugin extends Plugin {
 
     _triggerHermes(filePath) {
         const vaultPath = this.app.vault.adapter.getBasePath();
-        const logDir = path.join(vaultPath, 'agent', 'oficio', 'trigger-logs');
-        fs.mkdirSync(logDir, { recursive: true });
-
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const safeFile = filePath.replace(/[^A-Za-z0-9_.-]+/g, '_');
-        const logPath = path.join(logDir, `${stamp}_${safeFile}.log`);
-        const log = fs.createWriteStream(logPath, { flags: 'a' });
+        const prompt = [
+            `Scan the ofício vault for pending @hermes requests in ${filePath} and process them.`,
+            '',
+            'Use the oficio tools. When you start a request, call oficio_start with the current Hermes Session ID from your system prompt.',
+            'When you finish, call oficio_complete or oficio_fail with that same session_id.',
+            'Unless the request explicitly asks for a different format, write the final answer back to the daily note through oficio_complete.response.',
+            'The response should be concise markdown. oficio_complete will place it under the request as an Agent response code block.',
+            'Do not create a separate log file; the Hermes transcript is the session log.'
+        ].join('\n');
 
         const args = [
-            '-z',
-            `Scan the ofício vault for pending @hermes requests in ${filePath} and process them.`,
+            'chat',
+            '-q',
+            prompt,
+            '--quiet',
+            '--pass-session-id',
+            '--source',
+            'obsidian',
             '--yolo',
             '--accept-hooks'
         ];
@@ -156,7 +159,6 @@ module.exports = class OficioTriggerPlugin extends Plugin {
         };
 
         writeLog(`starting Hermes: hermes ${args.map((arg) => JSON.stringify(arg)).join(' ')}`);
-        writeLog(`log file: ${logPath}`);
 
         const child = spawn('hermes', args, {
             cwd: vaultPath,
@@ -168,19 +170,16 @@ module.exports = class OficioTriggerPlugin extends Plugin {
         new Notice(`Ofício: Hermes started for ${filePath}`);
 
         child.stdout.on('data', (data) => {
-            log.write(data);
             console.log(`Ofício Trigger stdout: ${data.toString().trimEnd()}`);
         });
 
         child.stderr.on('data', (data) => {
-            log.write(data);
             console.error(`Ofício Trigger stderr: ${data.toString().trimEnd()}`);
         });
 
         child.on('error', (err) => {
             writeLog(`failed to spawn Hermes: ${err.message}`);
             new Notice(`Ofício: failed to spawn Hermes — ${err.message}`, 10000);
-            log.end();
         });
 
         child.on('close', (code, signal) => {
@@ -189,13 +188,11 @@ module.exports = class OficioTriggerPlugin extends Plugin {
                 ? `Hermes completed successfully for ${filePath}`
                 : `Hermes failed for ${filePath} (exit ${code}${signal ? `, signal ${signal}` : ''})`;
             writeLog(result);
-            writeLog(`inspect log: ${logPath}`);
-            log.end();
 
             if (ok) {
                 new Notice(`Ofício: Hermes completed for ${filePath}`, 8000);
             } else {
-                new Notice(`Ofício: Hermes failed. See ${path.relative(vaultPath, logPath)}`, 15000);
+                new Notice(`Ofício: Hermes failed for ${filePath}`, 15000);
             }
         });
     }

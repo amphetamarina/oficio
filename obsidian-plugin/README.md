@@ -1,17 +1,22 @@
 # Ofício Trigger — Obsidian Plugin
 
 Watches vault modifications and automatically triggers Hermes agent sessions
-when a daily note or the ofício inbox is modified and contains unchecked
-`@hermes` requests without a Status line.
+when a daily note contains unchecked `@hermes` requests without a Status line.
 
 ## How it works
 
 1. Listens to `vault.on('modify')` events
-2. Filters for daily notes (`Daily/YYYY-MM-DD.md`) and the ofício inbox
+2. Filters for daily notes (`Daily/YYYY-MM-DD.md`)
 3. 5-minute debounce: won't trigger more than once per 5 minutes per file
 4. 2-second debounce: waits for rapid successive saves to settle
 5. Checks content for unchecked `- [ ] @hermes` without `Status:` line
-6. Spawns `hermes -z "Scan the ofício vault..." --yolo --accept-hooks`
+6. Spawns `hermes chat -q ... --quiet --pass-session-id --source obsidian`
+
+The trigger does not write to the vault. Hermes writes status and responses
+through the ofício tools. Because the trigger uses `--pass-session-id`, the
+agent can pass the real Hermes session ID to `oficio_start` and
+`oficio_complete`, which makes the inline `Log:` link point at
+`~/.hermes/sessions/session_<id>.json`.
 
 ## Installation
 

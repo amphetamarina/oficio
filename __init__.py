@@ -29,6 +29,7 @@ try:
         mark_request_in_progress,
         replace_once,
         request_exists,
+        session_log_path,
         upsert_status_line,
     )
 except Exception:  # pragma: no cover - direct import mode
@@ -43,6 +44,7 @@ except Exception:  # pragma: no cover - direct import mode
         mark_request_in_progress,
         replace_once,
         request_exists,
+        session_log_path,
         upsert_status_line,
     )
 
@@ -82,6 +84,8 @@ COMPLETE_SCHEMA = {
             "id": {"type": "string"},
             "path": {"type": "string", "description": "Vault-relative source path. Defaults to today's daily note."},
             "note": {"type": "string"},
+            "response": {"type": "string", "description": "Full response to write under the request as an Agent response block."},
+            "session_id": {"type": "string", "description": "Current Hermes session ID from --pass-session-id."},
             "line": {"type": "integer", "description": "Line number of the request (from scan output). Required for auto-generated IDs."},
         },
         "required": ["id", "note"],
@@ -97,6 +101,7 @@ FAIL_SCHEMA = {
             "id": {"type": "string"},
             "path": {"type": "string", "description": "Vault-relative source path. Defaults to today's daily note."},
             "error": {"type": "string"},
+            "session_id": {"type": "string", "description": "Current Hermes session ID from --pass-session-id."},
             "line": {"type": "integer", "description": "Line number of the request (from scan output). Required for auto-generated IDs."},
         },
         "required": ["id", "error"],
@@ -111,6 +116,7 @@ START_SCHEMA = {
         "properties": {
             "id": {"type": "string"},
             "path": {"type": "string", "description": "Vault-relative source path. Defaults to today's daily note."},
+            "session_id": {"type": "string", "description": "Current Hermes session ID from --pass-session-id."},
             "line": {"type": "integer", "description": "Line number of the request (from scan output). Required for auto-generated IDs."},
         },
         "required": ["id"],
@@ -217,12 +223,12 @@ def _handle_start(args: Dict[str, Any], **kw: Any) -> str:
         return tool_error("id is required")
     try:
         source = _read_note_with_fallback(cfg, source_path)
-        session_id = _get_current_session_id()
+        session_id = str(args.get("session_id") or kw.get("session_id") or _get_current_session_id()).strip()
         updated_source = mark_request_in_progress(
             source, request_id, session_id=session_id, line_number=line_number
         )
         write_note(source_path, updated_source)
-        return tool_result({"success": True, "id": request_id, "path": source_path, "session_id": session_id})
+        return tool_result({"success": True, "id": request_id, "path": source_path, "session_id": session_id, "log_path": session_log_path(session_id)})
     except Exception as exc:
         return tool_error(f"oficio_start failed: {exc}")
 
@@ -231,6 +237,7 @@ def _handle_complete(args: Dict[str, Any], **kw: Any) -> str:
     cfg = load_config()
     request_id = str(args.get("id") or "").strip()
     note = str(args.get("note") or "").strip()
+    response = str(args.get("response") or "").strip()
     source_path = str(args.get("path") or resolve_daily_path(cfg))
     line_number = args.get("line")
     if line_number is not None:
@@ -241,16 +248,16 @@ def _handle_complete(args: Dict[str, Any], **kw: Any) -> str:
         return tool_error("note is required")
     try:
         source = _read_note_with_fallback(cfg, source_path)
-        session_id = _get_current_session_id()
+        session_id = str(args.get("session_id") or kw.get("session_id") or _get_current_session_id()).strip()
         try:
-            updated_source = mark_request_completed(source, request_id, note, line_number=line_number, session_id=session_id)
+            updated_source = mark_request_completed(source, request_id, note, line_number=line_number, session_id=session_id, response=response)
         except ValueError:
             if line_number is None or not request_exists(source, request_id):
                 raise
-            updated_source = mark_request_completed(source, request_id, note, session_id=session_id)
+            updated_source = mark_request_completed(source, request_id, note, session_id=session_id, response=response)
         write_note(source_path, updated_source)
 
-        return tool_result({"success": True, "id": request_id, "path": source_path, "session_id": session_id})
+        return tool_result({"success": True, "id": request_id, "path": source_path, "session_id": session_id, "log_path": session_log_path(session_id)})
     except Exception as exc:
         return tool_error(f"oficio_complete failed: {exc}")
 
@@ -269,7 +276,7 @@ def _handle_fail(args: Dict[str, Any], **kw: Any) -> str:
         return tool_error("error is required")
     try:
         source = _read_note_with_fallback(cfg, source_path)
-        session_id = _get_current_session_id()
+        session_id = str(args.get("session_id") or kw.get("session_id") or _get_current_session_id()).strip()
         try:
             updated_source = mark_request_failed(source, request_id, error, line_number=line_number, session_id=session_id)
         except ValueError:
@@ -278,7 +285,7 @@ def _handle_fail(args: Dict[str, Any], **kw: Any) -> str:
             updated_source = mark_request_failed(source, request_id, error, session_id=session_id)
         write_note(source_path, updated_source)
 
-        return tool_result({"success": True, "id": request_id, "path": source_path, "session_id": session_id})
+        return tool_result({"success": True, "id": request_id, "path": source_path, "session_id": session_id, "log_path": session_log_path(session_id)})
     except Exception as exc:
         return tool_error(f"oficio_fail failed: {exc}")
 

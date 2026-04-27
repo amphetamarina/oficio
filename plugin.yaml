@@ -1,12 +1,13 @@
 name: oficio
 version: 0.2.0
-description: Obsidian-vault command surface for Hermes/ofício workflows — daily-note-only architecture with inline Status. No inbox, no separate log folder, no session log files. Sessions are Hermes sessions.
+description: Obsidian-vault command surface for Hermes/ofício workflows — daily-note-only architecture with inline Status. No inbox and no ofício-owned log folder. Logs are Hermes sessions.
 author: agentescognitivos
 kind: standalone
 provides_tools:
   - oficio_config_show
   - oficio_scan
   - oficio_read
+  - oficio_start
   - oficio_complete
   - oficio_fail
   - oficio_replace

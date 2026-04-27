@@ -39,9 +39,11 @@ Then enable "Ofício Trigger" in Obsidian → Settings → Community plugins.
 
 ```
 obsidian-plugin/
-├── manifest.json    # Obsidian plugin manifest
-├── main.js          # Plugin code
-└── README.md        # This file
+├── manifest.json              # Obsidian plugin manifest
+├── main.js                    # Obsidian lifecycle and debounce
+├── pending-request-scanner.js # Request detection
+├── hermes-runner.js           # Hermes process launch
+└── README.md                  # This file
 ```
 
 The plugin lives in the ofício repo (`~/git/oficio/obsidian-plugin/`) and is

@@ -6,16 +6,11 @@
 
 <p align="center"><code>0.2.0 · experimental</code></p>
 
-ofício connects an Obsidian vault to Hermes. You write a normal markdown task in
-your daily note, Obsidian notices it, Hermes runs, and the answer comes back to
-the same note as inline status.
+ofício connects an Obsidian vault to Hermes. You write one checkbox task in
+today's daily note, Obsidian sees it, Hermes runs, and the result returns to the
+same note.
 
-```markdown
-- [ ] @hermes summarize yesterday's meeting notes and draft follow-ups.
-```
-
-That is the interface. No dashboard, no inbox to check, no separate workflow to
-learn.
+The only request syntax you need is `- [ ] @hermes <some message>`.
 
 ## getting started
 
@@ -34,7 +29,7 @@ ln -s ~/git/oficio ~/.hermes/plugins/oficio
 hermes plugins enable oficio
 ```
 
-To verify the plugin:
+Check that Hermes can see it:
 
 ```bash
 hermes -z "/oficio config"
@@ -50,39 +45,33 @@ ln -s ~/git/oficio/obsidian-plugin ~/Documents/my-vault/.obsidian/plugins/oficio
 ```
 
 Then open Obsidian and enable **Ofício Trigger** in
-**Settings → Community plugins**.
+**Settings -> Community plugins**.
 
-The Obsidian plugin needs the `hermes` command available on your desktop
-`PATH`. It watches daily notes at `Daily/YYYY-MM-DD.md`.
+The Obsidian plugin needs `hermes` on your desktop `PATH`. It watches daily
+notes at `Daily/YYYY-MM-DD.md`.
 
-### 4. ask for work from your daily note
+### 4. ask from your daily note
 
-In today's daily note, write:
+In today's daily note, add one task line:
 
-```markdown
-- [ ] @hermes write the weekly project summary from the notes in this vault.
-```
+> `- [ ] @hermes write the weekly project summary from the notes in this vault.`
 
-Obsidian picks it up automatically. The trigger plugin only starts Hermes; it
-does not edit your vault. Hermes writes the status through the ofício tools when
-it starts and finishes:
+Obsidian starts Hermes automatically. The trigger only starts the session; it
+does not edit the vault itself.
 
-```markdown
-- [ ] @hermes id:20260427-1 write the weekly project summary from the notes in this vault.
-  Status: in progress | Session: 20260427_091500_8da571 | Log: [/home/you/.hermes/sessions/session_20260427_091500_8da571.json](file:///home/you/.hermes/sessions/session_20260427_091500_8da571.json)
-```
+When Hermes starts work, ofício adds an `id:`, keeps the checkbox open, and
+writes `Status: in progress` under the task. When Hermes finishes, it checks the
+box and changes the status to `completed` or `failed`.
 
-```markdown
-- [x] @hermes id:20260427-1 write the weekly project summary from the notes in this vault.
-  Status: completed - drafted the weekly summary | Session: 20260427_091500_8da571 | Log: [/home/you/.hermes/sessions/session_20260427_091500_8da571.json](file:///home/you/.hermes/sessions/session_20260427_091500_8da571.json)
-  Agent response:
-  ````markdown
-  Drafted the weekly summary and added follow-up bullets.
-  ````
-```
+The status line also contains:
 
-`id:` is optional. If you omit it, ofício generates one when the request is
-scanned.
+| field | meaning |
+|---|---|
+| `Session:` | the real Hermes session ID |
+| `Log:` | a link to `~/.hermes/sessions/session_<id>.json` |
+
+Unless the request asks for another format, the final answer is written below
+the task under `Agent response:`.
 
 ## three concepts
 
@@ -95,9 +84,8 @@ scanned.
 Your Obsidian vault is the source of truth. Requests, context, results, and
 status all live in markdown files you already read and edit.
 
-There is no separate dashboard, hidden database, parallel inbox, or ofício log
-folder. Hermes sessions remain available in `~/.hermes/sessions/`, and each
-status line links to the matching session transcript.
+There is no dashboard, hidden database, parallel inbox, or ofício-owned log
+folder. Hermes owns session transcripts in `~/.hermes/sessions/`.
 
 ### 2. a checkbox is the command surface
 
@@ -105,11 +93,7 @@ status line links to the matching session transcript.
   <img src="imagens/monotonia.png" alt="One repeated request shape" width="420">
 </p>
 
-The command surface is one markdown shape:
-
-```markdown
-- [ ] @hermes <some message>
-```
+The command surface is one markdown shape: `- [ ] @hermes <some message>`.
 
 Use it directly in the daily note. The Obsidian plugin watches for unchecked
 `@hermes` tasks without a `Status:` line and starts a Hermes session.
@@ -120,15 +104,8 @@ Use it directly in the daily note. The Obsidian plugin watches for unchecked
   <img src="imagens/habituacao_visibilidade.png" alt="Visible inline status" width="420">
 </p>
 
-Every request gets a `Status:` line under it. While the agent works, the checkbox
-stays open and the status says `in progress`. When the task finishes, the
-checkbox is checked and the status says `completed` or `failed`. Obsidian
-sessions launched by the trigger pass the real Hermes session ID to the agent,
-so `Session:` and `Log:` point at the same transcript Hermes stores.
-
-Unless the request says otherwise, the final answer is written back under the
-request as an `Agent response` code block. That makes the daily note both the
-place to ask and the place to audit.
+Every request gets its status directly under the checkbox. The daily note is the
+place to ask, inspect progress, read the answer, and find the Hermes transcript.
 
 ## what exists today
 
@@ -136,29 +113,28 @@ The Hermes plugin exposes these tools:
 
 | tool | what it does |
 |---|---|
-| `oficio_scan` | finds `- [ ] @hermes ...` requests in the daily note |
+| `oficio_scan` | finds pending `@hermes` requests in the daily note |
 | `oficio_read` | reads any note in the vault |
-| `oficio_start` | marks a request as `Status: in progress` without changing the checkbox, with optional Hermes `session_id` |
-| `oficio_complete` | marks request as `[x]`, writes `Status: completed`, and can add an `Agent response` block |
-| `oficio_fail` | marks request as `[x]` and writes `Status: failed` inline |
-| `oficio_replace` | swaps one exact string for another, with no regex |
-| `oficio_today` | shows the path to today's daily note |
+| `oficio_start` | writes `Status: in progress` without changing the checkbox |
+| `oficio_complete` | checks the box, writes `Status: completed`, and can add `Agent response:` |
+| `oficio_fail` | checks the box and writes `Status: failed` |
+| `oficio_replace` | replaces one exact string in one note |
+| `oficio_today` | shows today's daily note path |
 | `oficio_config_show` | shows the active configuration |
 
-It also provides:
+Slash commands:
 
-- `on_session_start`, which scans the daily note and tells the agent about
-  pending requests without executing them.
-- slash commands:
+| command | purpose |
+|---|---|
+| `/oficio scan [path]` | scan for pending requests |
+| `/oficio config` | show configuration |
+| `/oficio today` | show today's daily note path |
+| `/oficio start <id> [line]` | mark a request in progress |
+| `/oficio complete <id> <note...>` | mark a request complete |
+| `/oficio fail <id> <error...>` | mark a request failed |
 
-```text
-/oficio scan [path]
-/oficio config
-/oficio today
-/oficio start <id> [line]
-/oficio complete <id> <note...>
-/oficio fail <id> <error...>
-```
+There is no session-start hook. Automatic execution belongs to the Obsidian
+trigger plugin.
 
 ## development
 

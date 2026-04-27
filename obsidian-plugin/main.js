@@ -1,199 +1,213 @@
 const { Plugin, Notice } = require('obsidian');
 const { spawn } = require('child_process');
 
-const DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
-const SETTLE_MS = 2000;
+const DAILY_FOLDER = 'Daily';
+const HERMES_MARKER = '@hermes';
+const TRIGGER_DEBOUNCE_MS = 5 * 60 * 1000;
+const SAVE_SETTLE_MS = 2000;
+const STATUS_LOOKAHEAD_LINES = 15;
 
-module.exports = class OficioTriggerPlugin extends Plugin {
-    async onload() {
-        this.lastTrigger = {};
-        this.pendingCheck = null;
+const OPEN_TASK = /^\s*-\s*\[\s*\]/;
+const ANY_TASK = /^\s*-\s*\[/;
+const STATUS = /^\s*Status:/;
 
-        console.log('Ofício Trigger: loaded, watching vault modifications');
-
-        this.registerEvent(
-            this.app.vault.on('modify', (file) => {
-                this._onFileModified(file);
-            })
-        );
-    }
-
-    onunload() {
-        console.log('Ofício Trigger: unloaded');
-        if (this.pendingCheck) {
-            clearTimeout(this.pendingCheck);
-        }
-    }
-
-    async _onFileModified(file) {
-        // Only watch daily notes.
-        const dailyFolder = 'Daily';
-        const filePath = file.path;
-
-        const isDaily = filePath.startsWith(dailyFolder + '/') && filePath.endsWith('.md');
-        if (!isDaily) {
-            return;
-        }
-
-        // 5-minute debounce per file
-        const now = Date.now();
-        const last = this.lastTrigger[filePath] || 0;
-        if (now - last < DEBOUNCE_MS) {
-            console.log(`Ofício Trigger: debounced ${filePath} (${Math.round((now - last) / 1000)}s since last trigger)`);
-            return;
-        }
-
-        // Debounce rapid successive saves: wait 2s after last modify
-        if (this.pendingCheck) {
-            clearTimeout(this.pendingCheck);
-        }
-
-        this.pendingCheck = setTimeout(async () => {
-            this.pendingCheck = null;
-            await this._checkAndTrigger(file);
-        }, SETTLE_MS);
-    }
-
-    async _checkAndTrigger(file) {
-        const filePath = file.path;
-        console.log(`Ofício Trigger: checking ${filePath}`);
-
-        try {
-            const content = await this.app.vault.read(file);
-
-            // Check for unchecked @hermes without Status
-            const hasPending = this._hasPendingWithoutStatus(content);
-
-            if (hasPending) {
-                this.lastTrigger[filePath] = Date.now();
-                console.log(`Ofício Trigger: pending @hermes found in ${filePath}, triggering Hermes`);
-                this._triggerHermes(filePath);
-            } else {
-                console.log(`Ofício Trigger: no pending @hermes in ${filePath}`);
-            }
-        } catch (err) {
-            console.error(`Ofício Trigger: error reading ${filePath}:`, err);
-        }
-    }
-
-    _hasPendingWithoutStatus(content) {
+class PendingRequestScanner {
+    hasRunnableRequest(content) {
         const lines = content.split('\n');
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-
-            // Standard format: - [ ] @hermes ...
-            if (/^\s*-\s*\[\s*\]\s+.*@hermes\b/.test(line)) {
-                if (!this._hasStatusInBlock(lines, i)) {
-                    return true;
-                }
-                continue;
-            }
-
-            // Split-line format: @hermes ... on a standalone line followed by - [ ]
-            if (/@hermes\b/.test(line) && !/^\s*-\s*\[/.test(line)) {
-                // Find the next - [ ] line
-                let j = i + 1;
-                while (j < lines.length && !lines[j].trim()) {
-                    j++;
-                }
-                if (j < lines.length && /^\s*-\s*\[\s*\]/.test(lines[j]) && !/@hermes/.test(lines[j])) {
-                    if (!this._hasStatusInBlock(lines, j)) {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
+        return lines.some((_, index) => {
+            const taskIndex = this._taskIndex(lines, index);
+            return taskIndex !== null && !this._hasStatus(lines, taskIndex);
+        });
     }
 
-    _hasStatusInBlock(lines, startIdx) {
-        // Check within the next 15 lines for a Status: line
-        const limit = Math.min(lines.length, startIdx + 15);
-        for (let i = startIdx + 1; i < limit; i++) {
-            if (/^\s*Status:/.test(lines[i])) {
+    _taskIndex(lines, index) {
+        if (this._isInlineRequest(lines[index])) {
+            return index;
+        }
+        return this._splitTaskIndex(lines, index);
+    }
+
+    _isInlineRequest(line) {
+        return OPEN_TASK.test(line) && line.includes(HERMES_MARKER);
+    }
+
+    _splitTaskIndex(lines, markerIndex) {
+        const marker = lines[markerIndex];
+        if (!marker.includes(HERMES_MARKER) || ANY_TASK.test(marker)) {
+            return null;
+        }
+
+        const taskIndex = this._nextContentLine(lines, markerIndex + 1);
+        if (taskIndex >= lines.length) {
+            return null;
+        }
+
+        const task = lines[taskIndex];
+        return OPEN_TASK.test(task) && !task.includes(HERMES_MARKER) ? taskIndex : null;
+    }
+
+    _hasStatus(lines, taskIndex) {
+        const end = Math.min(lines.length, taskIndex + STATUS_LOOKAHEAD_LINES);
+        for (let index = taskIndex + 1; index < end; index++) {
+            if (STATUS.test(lines[index])) {
                 return true;
             }
-            // Stop at next checkbox (end of block)
-            if (/^\s*-\s*\[/.test(lines[i])) {
-                return false;
-            }
-            // Stop at non-indented, non-heading, non-empty lines
-            const line = lines[i];
-            if (line && !/^\s/.test(line) && !/^#/.test(line)) {
+            if (this._endsBlock(lines[index])) {
                 return false;
             }
         }
         return false;
     }
 
-    _triggerHermes(filePath) {
-        const vaultPath = this.app.vault.adapter.getBasePath();
-        const prompt = [
-            `Scan the ofício vault for pending @hermes requests in ${filePath} and process them.`,
-            '',
-            'Use the oficio tools. When you start a request, call oficio_start with the current Hermes Session ID from your system prompt.',
-            'When you finish, call oficio_complete or oficio_fail with that same session_id.',
-            'Unless the request explicitly asks for a different format, write the final answer back to the daily note through oficio_complete.response.',
-            'The response should be concise markdown. oficio_complete will place it under the request as an Agent response code block.',
-            'Do not create a separate log file; the Hermes transcript is the session log.'
-        ].join('\n');
+    _endsBlock(line) {
+        return ANY_TASK.test(line) || Boolean(line && !/^\s/.test(line) && !/^#/.test(line));
+    }
 
-        const args = [
+    _nextContentLine(lines, startIndex) {
+        let index = startIndex;
+        while (index < lines.length && !lines[index].trim()) {
+            index++;
+        }
+        return index;
+    }
+}
+
+class HermesRunner {
+    constructor(plugin) {
+        this.plugin = plugin;
+    }
+
+    run(filePath) {
+        const args = this._args(filePath);
+        this.plugin.log(`starting Hermes: hermes ${this._quoted(args)}`);
+
+        const child = spawn('hermes', args, {
+            cwd: this.plugin.vaultPath(),
+            stdio: ['ignore', 'pipe', 'pipe'],
+            env: { ...process.env },
+        });
+
+        this.plugin.log(`Hermes spawned (pid ${child.pid}) for ${filePath}`);
+        new Notice(`Ofício: Hermes started for ${filePath}`);
+
+        child.stdout.on('data', (data) => console.log(`Ofício Trigger stdout: ${data.toString().trimEnd()}`));
+        child.stderr.on('data', (data) => console.error(`Ofício Trigger stderr: ${data.toString().trimEnd()}`));
+        child.on('error', (error) => this._spawnFailed(error));
+        child.on('close', (code, signal) => this._finished(filePath, code, signal));
+    }
+
+    _args(filePath) {
+        return [
             'chat',
             '-q',
-            prompt,
+            this._prompt(filePath),
             '--quiet',
             '--pass-session-id',
             '--source',
             'obsidian',
             '--yolo',
-            '--accept-hooks'
+            '--accept-hooks',
         ];
+    }
 
-        const writeLog = (message) => {
-            const line = `[${new Date().toISOString()}] ${message}\n`;
-            log.write(line);
-            console.log(`Ofício Trigger: ${message}`);
-        };
+    _prompt(filePath) {
+        return [
+            `Scan the ofício vault for pending ${HERMES_MARKER} requests in ${filePath} and process them.`,
+            '',
+            'Use the oficio tools.',
+            'When you start a request, call oficio_start with the Hermes Session ID from your system prompt.',
+            'When you finish, call oficio_complete or oficio_fail with that same session_id.',
+            'Unless the request asks for another format, write the final answer back through oficio_complete.response.',
+            'Keep the response concise markdown; oficio_complete will place it under the request.',
+            'Do not create a separate log file; the Hermes transcript is the session log.',
+        ].join('\n');
+    }
 
-        writeLog(`starting Hermes: hermes ${args.map((arg) => JSON.stringify(arg)).join(' ')}`);
+    _spawnFailed(error) {
+        this.plugin.log(`failed to spawn Hermes: ${error.message}`);
+        new Notice(`Ofício: failed to spawn Hermes — ${error.message}`, 10000);
+    }
 
-        const child = spawn('hermes', args, {
-            cwd: vaultPath,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            env: { ...process.env },
-        });
+    _finished(filePath, code, signal) {
+        if (code === 0) {
+            this.plugin.log(`Hermes completed successfully for ${filePath}`);
+            new Notice(`Ofício: Hermes completed for ${filePath}`, 8000);
+            return;
+        }
 
-        writeLog(`Hermes spawned (pid ${child.pid}) for ${filePath}`);
-        new Notice(`Ofício: Hermes started for ${filePath}`);
+        const signalText = signal ? `, signal ${signal}` : '';
+        this.plugin.log(`Hermes failed for ${filePath} (exit ${code}${signalText})`);
+        new Notice(`Ofício: Hermes failed for ${filePath}`, 15000);
+    }
 
-        child.stdout.on('data', (data) => {
-            console.log(`Ofício Trigger stdout: ${data.toString().trimEnd()}`);
-        });
+    _quoted(args) {
+        return args.map((arg) => JSON.stringify(arg)).join(' ');
+    }
+}
 
-        child.stderr.on('data', (data) => {
-            console.error(`Ofício Trigger stderr: ${data.toString().trimEnd()}`);
-        });
+module.exports = class OficioTriggerPlugin extends Plugin {
+    async onload() {
+        this.scanner = new PendingRequestScanner();
+        this.runner = new HermesRunner(this);
+        this.lastTriggerByPath = {};
+        this.pendingTimer = null;
 
-        child.on('error', (err) => {
-            writeLog(`failed to spawn Hermes: ${err.message}`);
-            new Notice(`Ofício: failed to spawn Hermes — ${err.message}`, 10000);
-        });
+        this.log('loaded, watching daily notes');
+        this.registerEvent(this.app.vault.on('modify', (file) => this._fileChanged(file)));
+    }
 
-        child.on('close', (code, signal) => {
-            const ok = code === 0;
-            const result = ok
-                ? `Hermes completed successfully for ${filePath}`
-                : `Hermes failed for ${filePath} (exit ${code}${signal ? `, signal ${signal}` : ''})`;
-            writeLog(result);
+    onunload() {
+        this.log('unloaded');
+        clearTimeout(this.pendingTimer);
+    }
 
-            if (ok) {
-                new Notice(`Ofício: Hermes completed for ${filePath}`, 8000);
-            } else {
-                new Notice(`Ofício: Hermes failed for ${filePath}`, 15000);
+    vaultPath() {
+        return this.app.vault.adapter.getBasePath();
+    }
+
+    log(message) {
+        console.log(`Ofício Trigger: ${message}`);
+    }
+
+    _fileChanged(file) {
+        if (!this._isDailyNote(file.path) || this._recentlyTriggered(file.path)) {
+            return;
+        }
+        this._checkSoon(file);
+    }
+
+    _isDailyNote(filePath) {
+        return filePath.startsWith(`${DAILY_FOLDER}/`) && filePath.endsWith('.md');
+    }
+
+    _recentlyTriggered(filePath) {
+        const elapsed = Date.now() - (this.lastTriggerByPath[filePath] || 0);
+        if (elapsed >= TRIGGER_DEBOUNCE_MS) {
+            return false;
+        }
+        this.log(`debounced ${filePath} (${Math.round(elapsed / 1000)}s since last trigger)`);
+        return true;
+    }
+
+    _checkSoon(file) {
+        clearTimeout(this.pendingTimer);
+        this.pendingTimer = setTimeout(() => this._check(file), SAVE_SETTLE_MS);
+    }
+
+    async _check(file) {
+        this.pendingTimer = null;
+        this.log(`checking ${file.path}`);
+
+        try {
+            const content = await this.app.vault.read(file);
+            if (!this.scanner.hasRunnableRequest(content)) {
+                this.log(`no pending ${HERMES_MARKER} in ${file.path}`);
+                return;
             }
-        });
+            this.lastTriggerByPath[file.path] = Date.now();
+            this.runner.run(file.path);
+        } catch (error) {
+            console.error(`Ofício Trigger: error reading ${file.path}:`, error);
+        }
     }
 };

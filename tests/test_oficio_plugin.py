@@ -2,7 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-from oficio_config import default_config, resolve_daily_path, vault_abspath
+from oficio_config import resolve_daily_path, vault_abspath
 
 
 PLUGIN_PATH = Path(__file__).resolve().parents[1] / "__init__.py"
@@ -25,23 +25,6 @@ def configure_tmp_vault(tmp_path, monkeypatch):
     config_file = Path(cfg["config_file"])
     config_file.write_text(config_file.read_text().replace("use_obsidian_cli: true", "use_obsidian_cli: false"))
     return plugin, plugin.load_config()
-
-
-def test_session_start_reports_pending_without_creating_config(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    config_dir = tmp_path / "Documents" / "amphetamarina" / "agent" / "oficio"
-    monkeypatch.setenv("OFICIO_CONFIG_DIR", str(config_dir))
-    cfg = default_config()
-    daily_path = resolve_daily_path(cfg)
-    daily = vault_abspath(cfg, daily_path)
-    daily.parent.mkdir(parents=True)
-    daily.write_text("# Daily\n\n- [ ] @hermes id:first\n  do it.\n")
-
-    context = load_plugin_module()._session_start_context()
-
-    assert context is not None
-    assert "first" in json.dumps(context, ensure_ascii=False)
-    assert not Path(cfg["config_file"]).exists()
 
 
 def test_start_handler_writes_status_with_explicit_session(tmp_path, monkeypatch):

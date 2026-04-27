@@ -15,7 +15,7 @@ try:
     from .oficio_sessions import format_status as _format_status
     from .oficio_sessions import session_log_link as _session_log_link
     from .oficio_sessions import session_log_path as _session_log_path
-except Exception:  # pragma: no cover - direct import mode
+except ImportError:  # pragma: no cover - direct import mode
     from oficio_request_blocks import PendingRequest, RequestBlock
     from oficio_request_document import RequestDocument
     from oficio_request_ids import (

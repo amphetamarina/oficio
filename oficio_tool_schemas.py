@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable
 
 JsonDict = dict[str, Any]
 
 
+@dataclass(frozen=True, slots=True)
 class ToolSpec:
-    def __init__(self, name: str, schema: JsonDict, handler: Callable[..., str]) -> None:
-        self.name = name
-        self.schema = schema
-        self.handler = handler
+    name: str
+    schema: JsonDict
+    handler: Callable[..., str]
 
 
 class ToolSchema:

@@ -5,7 +5,7 @@ from typing import Any
 
 try:
     from .oficio_config import ConfigDict, load_config, vault_abspath
-except Exception:  # pragma: no cover - direct test/import mode
+except ImportError:  # pragma: no cover - direct test/import mode
     from oficio_config import ConfigDict, load_config, vault_abspath
 
 

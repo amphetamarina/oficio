@@ -20,7 +20,7 @@ class SessionLogs:
 
         try:
             data = json.loads(latest_session.read_text()[:4096])
-        except Exception:
+        except (OSError, json.JSONDecodeError):
             return ""
         return str(data.get("session_id", ""))
 

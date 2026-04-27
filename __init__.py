@@ -6,7 +6,7 @@ try:
     from .oficio_config import load_config
     from .oficio_tool_schemas import JsonDict
     from .oficio_tools import OficioTools
-except Exception:  # pragma: no cover - direct import mode
+except ImportError:  # pragma: no cover - direct import mode
     from oficio_config import load_config
     from oficio_tool_schemas import JsonDict
     from oficio_tools import OficioTools

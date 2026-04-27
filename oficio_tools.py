@@ -4,7 +4,7 @@ from typing import Any, Callable, Mapping
 
 try:
     from tools.registry import tool_error, tool_result
-except Exception:  # pragma: no cover - lets tests/imports run outside Hermes
+except ImportError:  # pragma: no cover - lets tests/imports run outside Hermes
     import json
 
     def tool_result(payload: Any) -> str:
@@ -42,7 +42,7 @@ try:
         JsonDict,
         ToolSpec,
     )
-except Exception:  # pragma: no cover - direct import mode
+except ImportError:  # pragma: no cover - direct import mode
     from oficio_config import load_config, resolve_daily_path, vault_abspath
     from oficio_obsidian import read_note, write_note
     from oficio_protocol import (
@@ -264,7 +264,7 @@ class OficioTools:
         vault_abspath(cfg, path)
         try:
             return read_note(path)
-        except Exception:
+        except (OSError, RuntimeError, ValueError):
             target = vault_abspath(cfg, path)
             if not target.exists():
                 raise FileNotFoundError(f"note not found: {path}")
@@ -275,7 +275,7 @@ class OficioTools:
         for path in paths:
             try:
                 highest = max(highest, _find_max_auto_id(self._read_note(cfg, path)))
-            except Exception:
+            except (OSError, RuntimeError, ValueError):
                 continue
         return highest
 

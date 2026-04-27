@@ -8,7 +8,7 @@ from typing import Any
 
 try:
     import yaml  # type: ignore
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     yaml = None  # type: ignore
 
 ConfigDict = dict[str, Any]

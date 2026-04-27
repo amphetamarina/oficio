@@ -15,7 +15,7 @@ try:
     from .oficio_request_ids import HERMES_MARKER, ID_PATTERN, auto_id
     from .oficio_response_block import agent_response_block
     from .oficio_sessions import format_status
-except Exception:  # pragma: no cover - direct import mode
+except ImportError:  # pragma: no cover - direct import mode
     from oficio_request_blocks import (
         AGENT_RESPONSE_PATTERN,
         CHECKBOX_PATTERN,

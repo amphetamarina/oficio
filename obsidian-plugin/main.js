@@ -72,11 +72,13 @@ class PendingRequestScanner {
 class HermesRunner {
     constructor(plugin) {
         this.plugin = plugin;
+        this._stderrBuffer = '';
     }
 
     run(filePath) {
         const args = this._args(filePath);
         this.plugin.log(`starting Hermes: hermes ${this._quoted(args)}`);
+        this._stderrBuffer = '';
 
         const child = spawn('hermes', args, {
             cwd: this.plugin.vaultPath(),
@@ -93,11 +95,38 @@ class HermesRunner {
         child.on('close', (code, signal) => this._finished(filePath, code, signal));
     }
 
+    _stderr(data) {
+        const text = data.toString();
+        this._stderrBuffer += text;
+        console.error(`Ofício Trigger stderr: ${text.trimEnd()}`);
+    }
+
+    _finished(filePath, code, signal) {
+        const sessionId = this._extractSessionId(this._stderrBuffer);
+        const signalText = signal ? `, signal ${signal}` : '';
+
+        if (code === 0 || sessionId) {
+            const status = code === 0 ? 'completed successfully' : `completed with warnings (exit ${code}${signalText})`;
+            this.plugin.log(`Hermes ${status} for ${filePath} (session ${sessionId || 'unknown'})`);
+            new Notice(`Ofício: Hermes ${status === 'completed successfully' ? 'completed' : 'completed with warnings'} for ${filePath}`, 8000);
+            return;
+        }
+
+        this.plugin.log(`Hermes failed for ${filePath} (exit ${code}${signalText})`);
+        new Notice(`Ofício: Hermes failed for ${filePath}`, 15000);
+    }
+
+    _extractSessionId(stderr) {
+        const match = stderr.match(/session_id:\s*(\S+)/);
+        return match ? match[1] : null;
+    }
+
     _args(filePath) {
         return [
             'chat',
             '-q',
             this._prompt(filePath),
+            '--quiet',
             '--pass-session-id',
             '--source',
             'obsidian',
@@ -123,25 +152,9 @@ class HermesRunner {
         console.log(`Ofício Trigger stdout: ${data.toString().trimEnd()}`);
     }
 
-    _stderr(data) {
-        console.error(`Ofício Trigger stderr: ${data.toString().trimEnd()}`);
-    }
-
     _spawnFailed(error) {
         this.plugin.log(`failed to spawn Hermes: ${error.message}`);
         new Notice(`Ofício: failed to spawn Hermes - ${error.message}`, 10000);
-    }
-
-    _finished(filePath, code, signal) {
-        if (code === 0) {
-            this.plugin.log(`Hermes completed successfully for ${filePath}`);
-            new Notice(`Ofício: Hermes completed for ${filePath}`, 8000);
-            return;
-        }
-
-        const signalText = signal ? `, signal ${signal}` : '';
-        this.plugin.log(`Hermes failed for ${filePath} (exit ${code}${signalText})`);
-        new Notice(`Ofício: Hermes failed for ${filePath}`, 15000);
     }
 
     _quoted(args) {

@@ -10,7 +10,7 @@ when a daily note contains unchecked `@hermes` requests without a Status line.
 3. 5-minute debounce: won't trigger more than once per 5 minutes per file
 4. 2-second debounce: waits for rapid successive saves to settle
 5. Checks content for unchecked `- [ ] @hermes` without `Status:` line
-6. Spawns `hermes chat -q ... --quiet --pass-session-id --source obsidian`
+6. Spawns `hermes chat -q ... --pass-session-id --source obsidian`
 
 The trigger does not write to the vault. Hermes writes status and responses
 through the ofício tools. Because the trigger uses `--pass-session-id`, the
@@ -22,9 +22,11 @@ agent can pass the real Hermes session ID to `oficio_start` and
 
 ```bash
 # From the ofício repo
-cp -r obsidian-plugin/ ~/Documents/amphetamarina/.obsidian/plugins/oficio-trigger/
+rm -rf ~/Documents/amphetamarina/.obsidian/plugins/oficio-trigger
+cp -r obsidian-plugin/ ~/Documents/amphetamarina/.obsidian/plugins/oficio-trigger
 
-# Or symlink
+# Or symlink (replaces any existing copy)
+rm -rf ~/Documents/amphetamarina/.obsidian/plugins/oficio-trigger
 ln -s ~/git/oficio/obsidian-plugin ~/Documents/amphetamarina/.obsidian/plugins/oficio-trigger
 ```
 
@@ -39,11 +41,9 @@ Then enable "Ofício Trigger" in Obsidian → Settings → Community plugins.
 
 ```
 obsidian-plugin/
-├── manifest.json              # Obsidian plugin manifest
-├── main.js                    # Obsidian lifecycle and debounce
-├── pending-request-scanner.js # Request detection
-├── hermes-runner.js           # Hermes process launch
-└── README.md                  # This file
+├── manifest.json   # Obsidian plugin manifest
+├── main.js         # Plugin logic (scanner + runner + lifecycle)
+└── README.md       # This file
 ```
 
 The plugin lives in the ofício repo (`~/git/oficio/obsidian-plugin/`) and is

@@ -98,7 +98,6 @@ class HermesRunner {
             'chat',
             '-q',
             this._prompt(filePath),
-            '--quiet',
             '--pass-session-id',
             '--source',
             'obsidian',

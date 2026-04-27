@@ -35,7 +35,7 @@ The Obsidian plugin watches daily notes at `Daily/YYYY-MM-DD.md`. When it sees
 an unchecked `@hermes` task without a `Status:` line, it starts:
 
 ```bash
-hermes chat -q <prompt> --quiet --pass-session-id --source obsidian --yolo --accept-hooks
+hermes chat -q <prompt> --pass-session-id --source obsidian --yolo --accept-hooks
 ```
 
 The trigger does not edit the vault. Hermes edits through the ofício tools, so

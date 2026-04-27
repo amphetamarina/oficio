@@ -54,6 +54,7 @@ Replace `~/Documents/my-vault` with your vault path:
 
 ```bash
 mkdir -p ~/Documents/my-vault/.obsidian/plugins
+rm -rf ~/Documents/my-vault/.obsidian/plugins/oficio-trigger
 ln -s ~/git/oficio/obsidian-plugin ~/Documents/my-vault/.obsidian/plugins/oficio-trigger
 ```
 

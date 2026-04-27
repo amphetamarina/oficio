@@ -44,5 +44,5 @@ the session ID in the note matches the Hermes session log.
 ## tests
 
 ```bash
-nix shell nixpkgs#python312 nixpkgs#python312Packages.pytest -c sh -lc 'PYTHONPATH=. pytest -q'
+PYTHONPATH=. pytest -q
 ```

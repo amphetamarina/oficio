@@ -229,7 +229,7 @@ class RequestDocument:
 
         fence = self.lines[fence_index].strip()
         if not fence.startswith("```"):
-            return fence_index
+            return block_end
 
         index = fence_index + 1
         while index < block_end and self.lines[index].strip() != fence:

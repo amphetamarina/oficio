@@ -39,7 +39,7 @@ def load_plugin_module():
 
 def given_vault(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    config_dir = tmp_path / "Documents" / "amphetamarina" / "agent" / "oficio"
+    config_dir = tmp_path / "Documents" / "my-vault" / "agent" / "oficio"
     monkeypatch.setenv("OFICIO_CONFIG_DIR", str(config_dir))
 
     plugin = load_plugin_module()
@@ -88,7 +88,7 @@ def test_scenario_daily_note_request_moves_from_pending_to_completed(tmp_path, m
         "id": "summary",
         "path": daily_path,
         "note": "summary written",
-        "response": "Final answer.",
+        "response": "## Result\n\n- Final answer.",
         "session_id": "sid-1",
     }))
 
@@ -99,7 +99,9 @@ def test_scenario_daily_note_request_moves_from_pending_to_completed(tmp_path, m
     assert "- [x] @hermes id:summary" in content
     assert "Status: completed - summary written | Session: sid-1" in content
     assert "Agent response:" in content
-    assert "  Final answer." in content
+    assert "```markdown" not in content
+    assert "  ## Result" in content
+    assert "  - Final answer." in content
 
 
 def test_scenario_auto_ids_and_split_line_requests_target_the_right_checkbox():
@@ -142,6 +144,25 @@ def test_scenario_existing_agent_response_is_replaced_not_duplicated():
     assert updated.count("Agent response:") == 1
     assert "  old\n" not in updated
     assert "  new\n" in updated
+
+
+def test_scenario_existing_plain_agent_response_is_replaced_not_duplicated():
+    text = """# Daily
+
+- [x] @hermes id:task
+  Status: completed - old
+  Agent response:
+  old
+  - stale
+"""
+
+    updated = upsert_agent_response(text, "task", "## New\n\n- fresh")
+
+    assert updated.count("Agent response:") == 1
+    assert "  old\n" not in updated
+    assert "  - stale\n" not in updated
+    assert "  ## New\n" in updated
+    assert "  - fresh\n" in updated
 
 
 def test_scenario_boundaries_reject_unsafe_or_ambiguous_edits(monkeypatch):

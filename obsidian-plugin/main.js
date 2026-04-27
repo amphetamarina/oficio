@@ -73,12 +73,14 @@ class HermesRunner {
     constructor(plugin) {
         this.plugin = plugin;
         this._stderrBuffer = '';
+        this._stderrLineBuffer = '';
     }
 
     run(filePath) {
         const args = this._args(filePath);
         this.plugin.log(`starting Hermes: hermes ${this._quoted(args)}`);
         this._stderrBuffer = '';
+        this._stderrLineBuffer = '';
 
         const child = spawn('hermes', args, {
             cwd: this.plugin.vaultPath(),
@@ -98,22 +100,44 @@ class HermesRunner {
     _stderr(data) {
         const text = data.toString();
         this._stderrBuffer += text;
-        console.error(`Ofício Trigger stderr: ${text.trimEnd()}`);
+        this._stderrLineBuffer += text;
+
+        const lines = this._stderrLineBuffer.split(/\r?\n/);
+        this._stderrLineBuffer = lines.pop() || '';
+        lines.forEach((line) => this._logStderrLine(line));
     }
 
     _finished(filePath, code, signal) {
+        if (this._stderrLineBuffer) {
+            this._logStderrLine(this._stderrLineBuffer);
+            this._stderrLineBuffer = '';
+        }
+
         const sessionId = this._extractSessionId(this._stderrBuffer);
         const signalText = signal ? `, signal ${signal}` : '';
 
-        if (code === 0 || sessionId) {
-            const status = code === 0 ? 'completed successfully' : `completed with warnings (exit ${code}${signalText})`;
-            this.plugin.log(`Hermes ${status} for ${filePath} (session ${sessionId || 'unknown'})`);
-            new Notice(`Ofício: Hermes ${status === 'completed successfully' ? 'completed' : 'completed with warnings'} for ${filePath}`, 8000);
+        if (code === 0) {
+            this.plugin.log(`Hermes completed successfully for ${filePath} (session ${sessionId || 'unknown'})`);
+            new Notice(`Ofício: Hermes completed for ${filePath}`, 8000);
             return;
         }
 
-        this.plugin.log(`Hermes failed for ${filePath} (exit ${code}${signalText})`);
+        this.plugin.log(`Hermes failed for ${filePath} (exit ${code}${signalText}, session ${sessionId || 'unknown'})`);
         new Notice(`Ofício: Hermes failed for ${filePath}`, 15000);
+    }
+
+    _logStderrLine(line) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+            return;
+        }
+
+        if (/^session_id:\s*\S+$/.test(trimmed)) {
+            this.plugin.log(`Hermes ${trimmed}`);
+            return;
+        }
+
+        console.error(`Ofício Trigger stderr: ${line}`);
     }
 
     _extractSessionId(stderr) {
@@ -143,7 +167,8 @@ class HermesRunner {
             'When you start a request, call oficio_start with the Hermes Session ID from your system prompt.',
             'When you finish, call oficio_complete or oficio_fail with that same session_id.',
             'Unless the request asks for another format, write the final answer back through oficio_complete.response.',
-            'Keep the response concise markdown; oficio_complete will place it under the request.',
+            'Write oficio_complete.response as concise native markdown for insertion under the request.',
+            'Respect markdown hierarchy; do not wrap the whole response in a code fence unless the request specifically asks for a code block.',
             'Do not create a separate log file; the Hermes transcript is the session log.',
         ].join('\n');
     }

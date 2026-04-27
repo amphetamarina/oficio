@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover
 
 ConfigDict = dict[str, Any]
 
-DEFAULT_VAULT_NAME = "amphetamarina"
+DEFAULT_VAULT_NAME = "my-vault"
 WORKSPACE_FILES = ("memory_file", "user_file", "soul_file")
 
 

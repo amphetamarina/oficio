@@ -1,4 +1,4 @@
-# Ofício Trigger — Obsidian Plugin
+# Ofício Trigger - Obsidian Plugin
 
 Watches vault modifications and automatically triggers Hermes agent sessions
 when a daily note contains unchecked `@hermes` requests without a Status line.
@@ -20,14 +20,12 @@ agent can pass the real Hermes session ID to `oficio_start` and
 
 ## Installation
 
-```bash
-# From the ofício repo
-rm -rf ~/Documents/amphetamarina/.obsidian/plugins/oficio-trigger
-cp -r obsidian-plugin/ ~/Documents/amphetamarina/.obsidian/plugins/oficio-trigger
+Replace `/path/to/vault` with your Obsidian vault directory:
 
-# Or symlink (replaces any existing copy)
-rm -rf ~/Documents/amphetamarina/.obsidian/plugins/oficio-trigger
-ln -s ~/git/oficio/obsidian-plugin ~/Documents/amphetamarina/.obsidian/plugins/oficio-trigger
+```bash
+mkdir -p /path/to/vault/.obsidian/plugins
+rm -rf /path/to/vault/.obsidian/plugins/oficio-trigger
+ln -s ~/git/oficio/obsidian-plugin /path/to/vault/.obsidian/plugins/oficio-trigger
 ```
 
 Then enable "Ofício Trigger" in Obsidian → Settings → Community plugins.
@@ -47,7 +45,7 @@ obsidian-plugin/
 ```
 
 The plugin lives in the ofício repo (`~/git/oficio/obsidian-plugin/`) and is
-copied or symlinked into the Obsidian vault's plugins directory.
+symlinked into the Obsidian vault's plugins directory.
 
-The plugin source should stay in the repo; the vault copy is just the
+The plugin source should stay in the repo; the vault plugin path is just the
 deployment target.

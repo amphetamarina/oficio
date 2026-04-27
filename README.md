@@ -6,39 +6,65 @@
 
 <p align="center"><code>0.2.0 · experimental</code></p>
 
-ofício is a small cybernetic loop between an Obsidian daily note and Hermes.
-You write a checkbox. The agent answers in the same place. The vault stays the
-body, the memory, and the record.
+ofício is a calm interface between an Obsidian daily note and Hermes Agent.
+It lets a markdown checkbox become a small cycle of attention: you write a
+request where you are already working, Hermes processes it, and the answer
+returns to the same note with status, session, and log links.
 
-The whole interface is:
+There is no separate inbox to remember, no dashboard to check, and no new place
+for work to drift away. The vault remains the locus of attention.
 
-> `- [ ] @hermes <some message>`
+The basic gesture is:
 
-## requirements
+> `- [ ] @hermes <your request>`
 
-[Obsidian](https://obsidian.md/) is the markdown vault. It gives ofício a daily
-note to watch and a visible place to return status, answers, and links.
+## Why
 
-[Hermes Agent](https://hermes-agent.org/) is the agent runtime. It reads the
-request, uses the ofício tools, and stores the session transcript under
-`~/.hermes/sessions/`.
+ofício is for a quieter kind of automation. It keeps the agent inside the
+texture of daily notes, where context, memory, and unfinished work already
+live. A single repeated shape reduces monotony instead of adding another mode:
+unchecked means open, checked means closed, and the trace stays visible.
 
-ofício is the bridge: a Hermes plugin plus a tiny Obsidian trigger plugin.
+It is designed around three simple constraints:
 
-## getting started
+- **Local attention:** requests stay beside the work that caused them.
+- **Visible state:** progress, completion, session ID, and log path are written inline.
+- **Markdown first:** answers are plain markdown, nested under the request, so they remain editable and part of the note.
 
-### 1. clone
+## Architecture
+
+<p align="center">
+  <img src="imagens/arquitetura.png" alt="Obsidian vault, Hermes plugin, and text conventions" width="840">
+</p>
+
+ofício has two parts:
+
+- A Hermes plugin that exposes tools such as `oficio_scan`, `oficio_start`, and `oficio_complete`.
+- A small Obsidian plugin that watches daily notes and starts Hermes when it sees a pending `@hermes` checkbox.
+
+Hermes writes through the ofício tools. The Obsidian trigger only starts the
+session; it does not edit your notes directly.
+
+## Requirements
+
+- Obsidian desktop
+- Hermes Agent installed and available as `hermes`
+- A daily note path shaped like `Daily/YYYY-MM-DD.md`
+
+## Install
+
+Clone the repository:
 
 ```bash
 git clone https://codeberg.org/agentescognitivos/oficio ~/git/oficio
 cd ~/git/oficio
 ```
 
-### 2. install the Hermes plugin
+Install the Hermes plugin:
 
 ```bash
 mkdir -p ~/.hermes/plugins
-ln -s ~/git/oficio ~/.hermes/plugins/oficio
+ln -sfn ~/git/oficio ~/.hermes/plugins/oficio
 hermes plugins enable oficio
 ```
 
@@ -48,67 +74,48 @@ Check that Hermes can see it:
 hermes -z "/oficio config"
 ```
 
-### 3. install the Obsidian plugin
-
-Replace `~/Documents/my-vault` with your vault path:
+Install the Obsidian trigger plugin. Replace `/path/to/vault` with your vault
+directory:
 
 ```bash
-mkdir -p ~/Documents/my-vault/.obsidian/plugins
-rm -rf ~/Documents/my-vault/.obsidian/plugins/oficio-trigger
-ln -s ~/git/oficio/obsidian-plugin ~/Documents/my-vault/.obsidian/plugins/oficio-trigger
+mkdir -p /path/to/vault/.obsidian/plugins
+rm -rf /path/to/vault/.obsidian/plugins/oficio-trigger
+ln -s ~/git/oficio/obsidian-plugin /path/to/vault/.obsidian/plugins/oficio-trigger
 ```
 
-Open Obsidian and enable **Ofício Trigger** in
-**Settings -> Community plugins**.
+Then open Obsidian and enable **Ofício Trigger** in **Settings -> Community
+plugins**.
 
-The trigger expects `hermes` on your desktop `PATH`. It watches
-`Daily/YYYY-MM-DD.md`.
+## Use
 
-### 4. ask
+Write an unchecked request in today's daily note:
 
-In today's daily note:
+```markdown
+- [ ] @hermes summarize the notes from this meeting.
+```
 
-> `- [ ] @hermes write the weekly project summary from this vault.`
+When Obsidian saves the note, the trigger starts Hermes. ofício adds an `id:`,
+marks the request as in progress, then completes it in place:
 
-Obsidian notices the unchecked `@hermes` task and starts Hermes. ofício then
-adds an `id:`, writes `Status: in progress`, and links the real Hermes session
-log. When the agent finishes, it checks the box and writes the response below
-the request.
+```markdown
+- [x] @hermes id:20260427-1 summarize the notes from this meeting.
+  Status: completed - summary written | Session: 20260427_150511_4b969e | Log:
+  /home/you/.hermes/sessions/session_20260427_150511_4b969e.json
+  Agent response:
+  ## Summary
 
-## three concepts
+  - The main decision was...
+  - The next step is...
+```
 
-### 1. the vault is the body
+The exact response depends on the request, but it should stay as normal
+markdown under `Agent response:`.
 
-<p align="center">
-  <img src="imagens/arquitetura.png" alt="Obsidian vault, Hermes plugin, and text conventions" width="840">
-</p>
-
-Requests, context, status, answers, and memory live in markdown. There is no
-dashboard and no second inbox.
-
-### 2. the checkbox is the signal
-
-<p align="center">
-  <img src="imagens/monotonia.png" alt="One repeated request shape" width="420">
-</p>
-
-One shape is enough: `- [ ] @hermes <some message>`. A checked box means the
-cycle closed.
-
-### 3. the trace stays visible
-
-<p align="center">
-  <img src="imagens/habituacao_visibilidade.png" alt="Visible inline status" width="420">
-</p>
-
-Each request keeps its status inline. `Session:` is the Hermes session ID.
-`Log:` points to `~/.hermes/sessions/session_<id>.json`.
-
-## development
+## Development
 
 Developer notes, tools, slash commands, and tests live in
 [DEVELOPMENT.md](DEVELOPMENT.md).
 
-## license
+## License
 
 MIT.

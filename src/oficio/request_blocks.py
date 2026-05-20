@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import re
 from dataclasses import dataclass
 from typing import TypedDict
@@ -19,7 +17,7 @@ class PendingRequest(TypedDict, total=False):
     has_explicit_id: bool
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class RequestBlock:
     marker_index: int
     checkbox_index: int

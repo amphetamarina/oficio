@@ -1,0 +1,35 @@
+[tools]
+python = "3.13"
+uv = "latest"
+
+[env]
+_.python.venv = { path = ".venv", create = true }
+
+[tasks.install]
+description = "Install the project and dev dependencies into a local .venv"
+run = "uv sync --all-extras"
+
+[tasks.test]
+description = "Run the test suite"
+run = "uv run pytest"
+
+[tasks.lint]
+description = "Lint with ruff"
+run = "uv run ruff check ."
+
+[tasks.format]
+description = "Format with ruff"
+run = "uv run ruff format ."
+
+[tasks.check]
+description = "Run lint and tests"
+depends = ["lint", "test"]
+
+[tasks.build]
+description = "Build the wheel and sdist for PyPI"
+run = "uv build"
+
+[tasks.publish]
+description = "Publish to PyPI (requires UV_PUBLISH_TOKEN)"
+run = "uv publish"
+depends = ["build"]

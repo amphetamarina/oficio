@@ -1,12 +1,7 @@
-from __future__ import annotations
-
 import subprocess
 from typing import Any
 
-try:
-    from .oficio_config import ConfigDict, load_config, vault_abspath
-except ImportError:  # pragma: no cover - direct test/import mode
-    from oficio_config import ConfigDict, load_config, vault_abspath
+from .config import ConfigDict, load_config, vault_abspath
 
 
 class ObsidianVault:
@@ -50,7 +45,7 @@ class ObsidianVault:
         return str(target)
 
     def _args(self, cfg: ConfigDict, command: str, kwargs: dict[str, Any]) -> list[str]:
-        args = self._base_args(cfg) + [command]
+        args = [*self._base_args(cfg), command]
         args.extend(self._format_arg(key, value) for key, value in kwargs.items() if self._include_arg(value))
         return args
 

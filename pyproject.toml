@@ -1,0 +1,103 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "oficio"
+version = "0.3.0"
+description = "A calm interface between an Obsidian daily note and Hermes Agent."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Marina Cabrera" }]
+keywords = ["obsidian", "hermes", "agent", "mcp", "automation", "markdown"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business",
+    "Topic :: Text Processing :: Markup :: Markdown",
+]
+dependencies = [
+    "PyYAML>=6.0",
+    "mcp>=1.2",
+]
+
+[project.scripts]
+oficio-mcp = "oficio.mcp:main"
+
+[project.urls]
+Homepage = "https://github.com/amphetamarina/oficio"
+Source = "https://github.com/amphetamarina/oficio"
+Issues = "https://github.com/amphetamarina/oficio/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/oficio"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/oficio",
+    "README.md",
+    "DEVELOPMENT.md",
+    "AGENTS.md",
+    "LICENSE",
+    "pyproject.toml",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-randomly>=3.15",
+    "ruff>=0.9",
+    "pyright>=1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "C4",   # flake8-comprehensions
+    "PTH",  # use pathlib over os.path
+    "TC",   # move type-only imports into TYPE_CHECKING
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",  # line length handled by formatter
+    "B904",  # raise-from noise inside tight rethrows
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+"__init__.py" = ["F401"]
+"src/oficio/mcp.py" = ["A002"]  # `id` shadows builtin — required by MCP tool schema
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+reportMissingImports = "warning"

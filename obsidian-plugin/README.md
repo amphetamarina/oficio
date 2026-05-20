@@ -1,26 +1,47 @@
-# Ofício Trigger - Obsidian Plugin
+# Ofício Trigger — Obsidian Plugin
 
-Watches vault modifications and automatically triggers Hermes agent sessions
-when a daily note contains unchecked `@hermes` requests without a Status line.
+Watches vault modifications and automatically launches your coding agent when
+a daily note contains unchecked `@agent` requests without a `Status:` line.
+The agent is expected to be configured separately to speak to the ofício MCP
+server (`oficio-mcp`).
 
 ## How it works
 
-1. Listens to `vault.on('modify')` events
-2. Filters for daily notes (`Daily/YYYY-MM-DD.md`)
-3. 5-minute debounce: won't trigger more than once per 5 minutes per file
-4. 2-second debounce: waits for rapid successive saves to settle
-5. Checks content for unchecked `- [ ] @hermes` without `Status:` line
-6. Spawns `hermes chat -q ... --pass-session-id --source obsidian`
+1. Listens to `vault.on('modify')` events.
+2. Filters for daily notes (`Daily/YYYY-MM-DD.md` — folder configurable).
+3. 5-minute debounce per file, plus a 2-second save-settle window.
+4. Checks for an unchecked `- [ ] @agent` (marker configurable) without a
+   `Status:` line.
+5. Spawns the configured agent command. The trigger does not write to the
+   vault — the agent does, through the ofício MCP tools.
 
-The trigger does not write to the vault. Hermes writes status and responses
-through the ofício tools. Because the trigger uses `--pass-session-id`, the
-agent can pass the real Hermes session ID to `oficio_start` and
-`oficio_complete`, which makes the inline `Log:` link point at
-`~/.hermes/sessions/session_<id>.json`.
+A new session ID (`obsidian_<base36 timestamp>`) is exported as
+`OFICIO_SESSION_ID` for each launch so the agent can echo it back via
+`oficio_start` / `oficio_complete`.
+
+## Settings
+
+Open *Settings → Community plugins → Ofício Trigger → Options*:
+
+| setting | what it does | default |
+|---|---|---|
+| **Agent marker** | text that marks a task as an agent request | `@agent` |
+| **Agent command** | executable to run (e.g. `claude`, `codex`, `opencode`) | *(empty — required)* |
+| **Agent arguments** | space-separated argv; `{prompt}`, `{filePath}`, `{sessionId}` are substituted | *(empty — passes prompt as a single positional argument)* |
+| **Prompt template** | sent to the agent; `{filePath}` and `{marker}` are substituted | sensible default |
+| **Daily folder** | vault-relative folder to watch | `Daily` |
+
+### Examples
+
+**Claude Code:** `claude` with args `-p "{prompt}"`
+
+**OpenAI Codex:** `codex` with args `-p "{prompt}"`
+
+**OpenCode:** `opencode` with args `run "{prompt}"`
 
 ## Installation
 
-Replace `/path/to/vault` with your Obsidian vault directory:
+Replace `/path/to/vault`:
 
 ```bash
 mkdir -p /path/to/vault/.obsidian/plugins
@@ -28,24 +49,10 @@ rm -rf /path/to/vault/.obsidian/plugins/oficio-trigger
 ln -s ~/git/oficio/obsidian-plugin /path/to/vault/.obsidian/plugins/oficio-trigger
 ```
 
-Then enable "Ofício Trigger" in Obsidian → Settings → Community plugins.
+Then enable **Ofício Trigger** in Obsidian → *Settings → Community plugins*.
 
 ## Requirements
 
-- Obsidian desktop (uses `child_process.spawn`)
-- `hermes` on PATH
-
-## Architecture
-
-```
-obsidian-plugin/
-├── manifest.json   # Obsidian plugin manifest
-├── main.js         # Plugin logic (scanner + runner + lifecycle)
-└── README.md       # This file
-```
-
-The plugin lives in the ofício repo (`~/git/oficio/obsidian-plugin/`) and is
-symlinked into the Obsidian vault's plugins directory.
-
-The plugin source should stay in the repo; the vault plugin path is just the
-deployment target.
+- Obsidian desktop (uses `child_process.spawn`).
+- Your agent CLI on `PATH`, connected to the ofício MCP server (see the repo
+  `README.md`).

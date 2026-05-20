@@ -1,12 +1,16 @@
-from __future__ import annotations
-
+import os
 import re
 import unicodedata
 from datetime import datetime
 
-HERMES_MARKER = "@hermes"
+DEFAULT_AGENT_MARKER = "@agent"
 AUTO_ID_FALLBACK = "pedido"
 ID_PATTERN = re.compile(r"\bid:([A-Za-z0-9_.:-]+)")
+
+
+def agent_marker() -> str:
+    """Marker that identifies a request line. Override via ``OFICIO_AGENT_MARKER``."""
+    return os.environ.get("OFICIO_AGENT_MARKER", "").strip() or DEFAULT_AGENT_MARKER
 
 
 def today_id_prefix() -> str:
@@ -27,7 +31,7 @@ def slugify_request_id(text: str, *, fallback: str = AUTO_ID_FALLBACK) -> str:
     ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
     lowered = ascii_text.lower()
     lowered = re.sub(r"\bid:[A-Za-z0-9_.:-]+\b", " ", lowered)
-    lowered = lowered.replace(HERMES_MARKER, " ")
+    lowered = lowered.replace(agent_marker(), " ")
     lowered = re.sub(r"^-\s*\[ \]\s*", " ", lowered)
     slug = re.sub(r"[^a-z0-9]+", "-", lowered).strip("-")
     return slug or fallback

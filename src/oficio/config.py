@@ -1,15 +1,10 @@
-from __future__ import annotations
-
 import os
 import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-try:
-    import yaml  # type: ignore
-except ImportError:  # pragma: no cover
-    yaml = None  # type: ignore
+import yaml
 
 ConfigDict = dict[str, Any]
 
@@ -39,7 +34,7 @@ class OficioConfig:
             "soul_file": "agent/SOUL.md",
             "obsidian_cli": self._obsidian_cli(),
             "vault": "",
-            "pending_marker": "@hermes",
+            "pending_marker": "@agent",
             "use_obsidian_cli": True,
         }
 
@@ -126,29 +121,8 @@ class OficioConfig:
         )
 
     def _load_yaml(self, path: Path) -> ConfigDict:
-        text = path.read_text()
-        if yaml is not None:
-            loaded = yaml.safe_load(text) or {}
-            return loaded if isinstance(loaded, dict) else {}
-        return self._load_simple_yaml(text)
-
-    def _load_simple_yaml(self, text: str) -> ConfigDict:
-        data: ConfigDict = {}
-        for raw_line in text.splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#") or ":" not in line:
-                continue
-            key, value = line.split(":", 1)
-            data[key.strip()] = self._parse_simple_value(value.strip())
-        return data
-
-    def _parse_simple_value(self, value: str) -> Any:
-        unquoted = value.strip('"')
-        if unquoted.lower() == "true":
-            return True
-        if unquoted.lower() == "false":
-            return False
-        return unquoted
+        loaded = yaml.safe_load(path.read_text()) or {}
+        return loaded if isinstance(loaded, dict) else {}
 
 
 CONFIG = OficioConfig()

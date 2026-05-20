@@ -1,67 +1,42 @@
-from __future__ import annotations
+from .request_blocks import PendingRequest, RequestBlock
+from .request_document import RequestDocument
+from .request_ids import (
+    DEFAULT_AGENT_MARKER,
+    agent_marker,
+    auto_id,
+    find_max_auto_id,
+    next_available_request_id,
+    slugify_request_id,
+    today_id_prefix,
+)
+from .sessions import current_session_id, format_status
 
-try:
-    from .oficio_request_blocks import PendingRequest, RequestBlock
-    from .oficio_request_document import RequestDocument
-    from .oficio_request_ids import (
-        HERMES_MARKER,
-        auto_id,
-        find_max_auto_id,
-        next_available_request_id,
-        slugify_request_id,
-        today_id_prefix,
-    )
-    from .oficio_sessions import SessionLogs
-    from .oficio_sessions import format_status as _format_status
-    from .oficio_sessions import session_log_link as _session_log_link
-    from .oficio_sessions import session_log_path as _session_log_path
-except ImportError:  # pragma: no cover - direct import mode
-    from oficio_request_blocks import PendingRequest, RequestBlock
-    from oficio_request_document import RequestDocument
-    from oficio_request_ids import (
-        HERMES_MARKER,
-        auto_id,
-        find_max_auto_id,
-        next_available_request_id,
-        slugify_request_id,
-        today_id_prefix,
-    )
-    from oficio_sessions import SessionLogs
-    from oficio_sessions import format_status as _format_status
-    from oficio_sessions import session_log_link as _session_log_link
-    from oficio_sessions import session_log_path as _session_log_path
+__all__ = [
+    "DEFAULT_AGENT_MARKER",
+    "PendingRequest",
+    "RequestBlock",
+    "RequestDocument",
+    "agent_marker",
+    "auto_id",
+    "current_session_id",
+    "find_max_auto_id",
+    "find_pending_requests",
+    "format_status",
+    "mark_request_completed",
+    "mark_request_failed",
+    "mark_request_in_progress",
+    "next_available_request_id",
+    "replace_once",
+    "request_exists",
+    "slugify_request_id",
+    "today_id_prefix",
+    "upsert_agent_response",
+    "upsert_status_line",
+]
 
 
 def find_pending_requests(path: str, text: str, start_index: int = 0) -> list[PendingRequest]:
     return RequestDocument(text).pending_requests(path, start_index=start_index)
-
-
-def _today_id_prefix() -> str:
-    return today_id_prefix()
-
-
-def _auto_id(index: int) -> str:
-    return auto_id(index)
-
-
-def _find_max_auto_id(text: str) -> int:
-    return find_max_auto_id(text)
-
-
-def _get_current_session_id() -> str:
-    return SessionLogs().current_session_id()
-
-
-def session_log_path(session_id: str) -> str:
-    return _session_log_path(session_id)
-
-
-def session_log_link(session_id: str) -> str:
-    return _session_log_link(session_id)
-
-
-def format_status(status: str, *, session_id: str = "") -> str:
-    return _format_status(status, session_id=session_id)
 
 
 def request_exists(text: str, request_id: str, *, line_number: int | None = None) -> bool:
@@ -83,7 +58,6 @@ def mark_request_completed(
     request_id: str,
     note: str,
     *,
-    timestamp: str | None = None,
     line_number: int | None = None,
     session_id: str = "",
     response: str = "",
@@ -102,7 +76,6 @@ def mark_request_failed(
     request_id: str,
     error: str,
     *,
-    timestamp: str | None = None,
     line_number: int | None = None,
     session_id: str = "",
 ) -> str:

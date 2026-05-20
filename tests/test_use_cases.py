@@ -1,102 +1,92 @@
-import importlib.util
+import asyncio
 import json
 import re
 from pathlib import Path
 
 import pytest
 
-from oficio_config import default_config, resolve_daily_path, vault_abspath
-from oficio_protocol import (
+from oficio import (
+    OficioTools,
+    default_config,
     find_pending_requests,
+    load_config,
     mark_request_completed,
     replace_once,
-    session_log_path,
+    resolve_daily_path,
     upsert_agent_response,
+    vault_abspath,
 )
-
-PLUGIN_PATH = Path(__file__).resolve().parents[1] / "__init__.py"
-
-
-class HermesContext:
-    def __init__(self):
-        self.tools = []
-        self.commands = []
-
-    def register_tool(self, *args, **kwargs):
-        self.tools.append(args)
-
-    def register_command(self, *args, **kwargs):
-        self.commands.append(args)
+from oficio.mcp import build_server
 
 
-def load_plugin_module():
-    spec = importlib.util.spec_from_file_location("oficio_plugin_under_test", PLUGIN_PATH)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
-
-
-def given_vault(tmp_path, monkeypatch):
+@pytest.fixture
+def vault(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    config_dir = tmp_path / "Documents" / "my-vault" / "agent" / "oficio"
-    monkeypatch.setenv("OFICIO_CONFIG_DIR", str(config_dir))
+    monkeypatch.setenv("OFICIO_CONFIG_DIR", str(tmp_path / "Documents" / "my-vault" / "agent" / "oficio"))
+    monkeypatch.delenv("OFICIO_SESSION_ID", raising=False)
+    monkeypatch.delenv("OFICIO_AGENT_MARKER", raising=False)
 
-    plugin = load_plugin_module()
-    cfg = plugin.load_config()
+    cfg = load_config()
     config_file = Path(cfg["config_file"])
     config_file.write_text(config_file.read_text().replace("use_obsidian_cli: true", "use_obsidian_cli: false"))
-    return plugin, plugin.load_config()
+    return load_config()
 
 
-def given_daily_note(cfg, text):
+def write_daily(cfg, text):
     daily_path = resolve_daily_path(cfg)
-    daily = vault_abspath(cfg, daily_path)
-    daily.parent.mkdir(parents=True, exist_ok=True)
-    daily.write_text(text)
-    return daily_path, daily
+    file = vault_abspath(cfg, daily_path)
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(text)
+    return daily_path, file
 
 
 def payload(raw):
     return json.loads(raw)
 
 
-def test_scenario_fresh_install_exposes_only_the_supported_command_surface(tmp_path, monkeypatch):
-    plugin, cfg = given_vault(tmp_path, monkeypatch)
-    context = HermesContext()
+def test_mcp_server_exposes_eight_tools(vault):
+    server = build_server()
+    tools = asyncio.run(server.list_tools())
+    names = {tool.name for tool in tools}
 
-    plugin.register(context)
+    assert names == {
+        "oficio_config_show",
+        "oficio_scan",
+        "oficio_read",
+        "oficio_today",
+        "oficio_start",
+        "oficio_complete",
+        "oficio_fail",
+        "oficio_replace",
+    }
 
-    config_text = Path(cfg["config_file"]).read_text()
-    assert "vault_path:" in config_text
-    assert 'pending_marker: "@hermes"' in config_text
-    assert len(context.tools) == 8
-    assert len(context.commands) == 1
-    assert not hasattr(plugin, "_session_start_context")
 
+def test_request_moves_from_pending_to_completed(vault):
+    daily_path, file = write_daily(
+        vault,
+        "# Daily\n\n- [ ] @agent id:summary\n  Summarize [[Meeting]].\n",
+    )
+    tools = OficioTools()
 
-def test_scenario_daily_note_request_moves_from_pending_to_completed(tmp_path, monkeypatch):
-    plugin, cfg = given_vault(tmp_path, monkeypatch)
-    daily_path, daily = given_daily_note(
-        cfg,
-        "# Daily\n\n- [ ] @hermes id:summary\n  Summarize [[Meeting]].\n",
+    scanned = payload(tools.scan({"path": daily_path}))
+    started = payload(tools.start({"id": "summary", "path": daily_path, "session_id": "sid-1"}))
+    completed = payload(
+        tools.complete(
+            {
+                "id": "summary",
+                "path": daily_path,
+                "note": "summary written",
+                "response": "## Result\n\n- Final answer.",
+                "session_id": "sid-1",
+            }
+        )
     )
 
-    scanned = payload(plugin._handle_scan({"path": daily_path}))
-    started = payload(plugin._handle_start({"id": "summary", "path": daily_path, "session_id": "sid-1"}))
-    completed = payload(plugin._handle_complete({
-        "id": "summary",
-        "path": daily_path,
-        "note": "summary written",
-        "response": "## Result\n\n- Final answer.",
-        "session_id": "sid-1",
-    }))
-
-    content = daily.read_text()
+    content = file.read_text()
     assert scanned["count"] == 1
-    assert started["log_path"].endswith("session_sid-1.json")
+    assert started["session_id"] == "sid-1"
     assert completed["success"] is True
-    assert "- [x] @hermes id:summary" in content
+    assert "- [x] @agent id:summary" in content
     assert "Status: completed - summary written | Session: sid-1" in content
     assert "Agent response:" in content
     assert "```markdown" not in content
@@ -104,15 +94,35 @@ def test_scenario_daily_note_request_moves_from_pending_to_completed(tmp_path, m
     assert "  - Final answer." in content
 
 
-def test_scenario_auto_ids_and_split_line_requests_target_the_right_checkbox():
+def test_session_id_falls_back_to_env(vault, monkeypatch):
+    monkeypatch.setenv("OFICIO_SESSION_ID", "env-sid")
+    daily_path, file = write_daily(vault, "# Daily\n\n- [ ] @agent id:task\n  Do thing.\n")
+
+    started = payload(OficioTools().start({"id": "task", "path": daily_path}))
+
+    assert started["session_id"] == "env-sid"
+    assert "Session: env-sid" in file.read_text()
+
+
+def test_custom_marker_via_env(vault, monkeypatch):
+    monkeypatch.setenv("OFICIO_AGENT_MARKER", "@claude")
+    daily_path, _ = write_daily(vault, "# Daily\n\n- [ ] @claude finish the report.\n")
+
+    pending = payload(OficioTools().scan({"path": daily_path}))["pending"]
+
+    assert len(pending) == 1
+    assert "@claude" in pending[0]["text"]
+
+
+def test_auto_ids_and_split_line_requests_target_the_right_checkbox():
     text = """# Daily
 
-- [ ] @hermes first.
+- [ ] @agent first.
 
-@hermes id:split
+@agent id:split
 - [ ] Do the split-line thing.
 
-- [ ] @hermes second.
+- [ ] @agent second.
 """
 
     pending = find_pending_requests("Daily/2026-04-27.md", text)
@@ -122,16 +132,16 @@ def test_scenario_auto_ids_and_split_line_requests_target_the_right_checkbox():
     assert [item["has_explicit_id"] for item in pending] == [False, True, False]
     assert re.match(r"\d{8}-1", str(pending[0]["id"]))
     assert pending[1]["lines"] == [5, 6]
-    assert "- [ ] @hermes first." in completed
-    assert "- [x] @hermes id:20260427-2 second." in completed
-    assert "@hermes id:split" in split_done
+    assert "- [ ] @agent first." in completed
+    assert "- [x] @agent id:20260427-2 second." in completed
+    assert "@agent id:split" in split_done
     assert "- [x] Do the split-line thing." in split_done
 
 
-def test_scenario_existing_agent_response_is_replaced_not_duplicated():
+def test_existing_agent_response_is_replaced_not_duplicated():
     text = """# Daily
 
-- [x] @hermes id:task
+- [x] @agent id:task
   Status: completed - old
   Agent response:
   ```markdown
@@ -146,10 +156,10 @@ def test_scenario_existing_agent_response_is_replaced_not_duplicated():
     assert "  new\n" in updated
 
 
-def test_scenario_existing_plain_agent_response_is_replaced_not_duplicated():
+def test_existing_plain_agent_response_is_replaced_not_duplicated():
     text = """# Daily
 
-- [x] @hermes id:task
+- [x] @agent id:task
   Status: completed - old
   Agent response:
   old
@@ -165,7 +175,7 @@ def test_scenario_existing_plain_agent_response_is_replaced_not_duplicated():
     assert "  - fresh\n" in updated
 
 
-def test_scenario_boundaries_reject_unsafe_or_ambiguous_edits(monkeypatch):
+def test_boundaries_reject_unsafe_or_ambiguous_edits(monkeypatch):
     monkeypatch.setenv("HOME", "/home/marina")
     cfg = default_config()
 
@@ -177,5 +187,3 @@ def test_scenario_boundaries_reject_unsafe_or_ambiguous_edits(monkeypatch):
         replace_once("same same", "same", "x")
     with pytest.raises(ValueError, match="required"):
         replace_once("abc", "", "x")
-
-    assert session_log_path("abc") == "/home/marina/.hermes/sessions/session_abc.json"

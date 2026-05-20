@@ -1,10 +1,10 @@
 {
     "id": "oficio-trigger",
     "name": "Ofício Trigger",
-    "version": "0.1.0",
-    "description": "Watch daily notes for @hermes requests and trigger Hermes agent sessions automatically.",
+    "version": "0.3.0",
+    "description": "Watch daily notes for @agent requests and trigger your coding agent automatically.",
     "minAppVersion": "1.0.0",
-    "author": "agentescognitivos",
-    "authorUrl": "https://codeberg.org/agentescognitivos/oficio",
+    "author": "Marina Cabrera",
+    "authorUrl": "https://github.com/amphetamarina/oficio",
     "isDesktopOnly": true
 }

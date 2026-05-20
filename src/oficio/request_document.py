@@ -1,32 +1,17 @@
-from __future__ import annotations
-
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
-try:
-    from .oficio_request_blocks import (
-        AGENT_RESPONSE_PATTERN,
-        CHECKBOX_PATTERN,
-        OPEN_CHECKBOX_PATTERN,
-        STATUS_LINE_PATTERN,
-        PendingRequest,
-        RequestBlock,
-    )
-    from .oficio_request_ids import HERMES_MARKER, ID_PATTERN, auto_id
-    from .oficio_response_block import agent_response_block
-    from .oficio_sessions import format_status
-except ImportError:  # pragma: no cover - direct import mode
-    from oficio_request_blocks import (
-        AGENT_RESPONSE_PATTERN,
-        CHECKBOX_PATTERN,
-        OPEN_CHECKBOX_PATTERN,
-        STATUS_LINE_PATTERN,
-        PendingRequest,
-        RequestBlock,
-    )
-    from oficio_request_ids import HERMES_MARKER, ID_PATTERN, auto_id
-    from oficio_response_block import agent_response_block
-    from oficio_sessions import format_status
+from .request_blocks import (
+    AGENT_RESPONSE_PATTERN,
+    CHECKBOX_PATTERN,
+    OPEN_CHECKBOX_PATTERN,
+    STATUS_LINE_PATTERN,
+    PendingRequest,
+    RequestBlock,
+)
+from .request_ids import ID_PATTERN, agent_marker, auto_id
+from .response_block import agent_response_block
+from .sessions import format_status
 
 
 class RequestDocument:
@@ -46,7 +31,7 @@ class RequestDocument:
                 id=request_id,
                 path=path,
                 line=block.line_number,
-                text="\n".join(self.lines[block.marker_index:block.end_index]).strip(),
+                text="\n".join(self.lines[block.marker_index : block.end_index]).strip(),
                 has_explicit_id=block.has_explicit_id,
             )
             if block.is_split_line:
@@ -193,7 +178,7 @@ class RequestDocument:
         if checkbox_index is not None:
             return self._block(index, checkbox_index, line)
 
-        raise ValueError(f"no @hermes request found at line {line_number}")
+        raise ValueError(f"no {agent_marker()} request found at line {line_number}")
 
     def _upsert_status(self, request_id: str, status_message: str) -> str:
         block = self._find_status_target(request_id)
@@ -239,9 +224,10 @@ class RequestDocument:
     def _ensure_request_id(self, marker_index: int, request_id: str) -> None:
         if ID_PATTERN.search(self.lines[marker_index]):
             return
+        marker = agent_marker()
         self.lines[marker_index] = re.sub(
-            r"(@hermes\b)",
-            f"@hermes id:{request_id}",
+            rf"({re.escape(marker)}\b)",
+            f"{marker} id:{request_id}",
             self.lines[marker_index],
             count=1,
         )
@@ -282,13 +268,18 @@ class RequestDocument:
     def _line_request_id(self, line: str) -> str:
         match = ID_PATTERN.search(line)
         return match.group(1) if match else ""
+
     def _request_id(self, marker_line: str, index: int) -> str:
         return self._line_request_id(marker_line) or auto_id(index)
+
     def _has_marker(self, line: str) -> bool:
-        return HERMES_MARKER in line
+        return agent_marker() in line
+
     def _is_open_checkbox(self, line: str) -> bool:
         return bool(OPEN_CHECKBOX_PATTERN.match(line))
+
     def _is_checkbox(self, line: str) -> bool:
         return bool(CHECKBOX_PATTERN.match(line))
+
     def _is_standard_request(self, line: str) -> bool:
         return self._is_open_checkbox(line) and self._has_marker(line)

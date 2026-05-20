@@ -1,81 +1,57 @@
-from __future__ import annotations
+"""Tool surface called by the MCP server.
 
-from typing import Any, Callable, Mapping
+Each method returns the JSON envelope produced by ``_result.tool_result`` /
+``tool_error``, so the same shape comes back regardless of which agent
+invoked it.
+"""
 
-try:
-    from tools.registry import tool_error, tool_result
-except ImportError:  # pragma: no cover - lets tests/imports run outside Hermes
-    import json
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from typing import Any
 
-    def tool_result(payload: Any) -> str:
-        return json.dumps(payload, ensure_ascii=False)
+from ._result import tool_error, tool_result
+from .config import load_config, resolve_daily_path, vault_abspath
+from .obsidian import read_note, write_note
+from .protocol import (
+    PendingRequest,
+    current_session_id,
+    find_max_auto_id,
+    find_pending_requests,
+    mark_request_completed,
+    mark_request_failed,
+    mark_request_in_progress,
+    replace_once,
+    request_exists,
+)
 
-    def tool_error(message: str, **extra: Any) -> str:
-        payload = {"success": False, "error": message}
-        payload.update(extra)
-        return json.dumps(payload, ensure_ascii=False)
+JsonDict = dict[str, Any]
 
-try:
-    from .oficio_config import load_config, resolve_daily_path, vault_abspath
-    from .oficio_obsidian import read_note, write_note
-    from .oficio_protocol import (
-        PendingRequest,
-        _find_max_auto_id,
-        _get_current_session_id,
-        find_pending_requests,
-        mark_request_completed,
-        mark_request_failed,
-        mark_request_in_progress,
-        replace_once,
-        request_exists,
-    )
-    from .oficio_tool_requests import RequestUpdate
-    from .oficio_tool_schemas import (
-        COMPLETE_SCHEMA,
-        CONFIG_SCHEMA,
-        FAIL_SCHEMA,
-        READ_SCHEMA,
-        REPLACE_SCHEMA,
-        SCAN_SCHEMA,
-        START_SCHEMA,
-        TODAY_SCHEMA,
-        JsonDict,
-        ToolSpec,
-    )
-except ImportError:  # pragma: no cover - direct import mode
-    from oficio_config import load_config, resolve_daily_path, vault_abspath
-    from oficio_obsidian import read_note, write_note
-    from oficio_protocol import (
-        PendingRequest,
-        _find_max_auto_id,
-        _get_current_session_id,
-        find_pending_requests,
-        mark_request_completed,
-        mark_request_failed,
-        mark_request_in_progress,
-        replace_once,
-        request_exists,
-    )
-    from oficio_tool_requests import RequestUpdate
-    from oficio_tool_schemas import (
-        COMPLETE_SCHEMA,
-        CONFIG_SCHEMA,
-        FAIL_SCHEMA,
-        READ_SCHEMA,
-        REPLACE_SCHEMA,
-        SCAN_SCHEMA,
-        START_SCHEMA,
-        TODAY_SCHEMA,
-        JsonDict,
-        ToolSpec,
-    )
+
+@dataclass(slots=True, kw_only=True)
+class RequestUpdate:
+    id: str
+    path: str
+    line: int | None
+    session_id: str
+    note: str = ""
+    error: str = ""
+    response: str = ""
+
+    @property
+    def result(self) -> JsonDict:
+        return {
+            "success": True,
+            "id": self.id,
+            "path": self.path,
+            "session_id": self.session_id,
+        }
 
 
 class OficioTools:
-    def config(self, args: JsonDict, **kw: Any) -> str:
+    def config(self, args: JsonDict) -> str:
         return tool_result({"success": True, "config": load_config()})
 
-    def scan(self, args: JsonDict, **kw: Any) -> str:
+    def scan(self, args: JsonDict) -> str:
         cfg = load_config()
         requested_path = self._string(args, "path")
         paths = [requested_path] if requested_path else [resolve_daily_path(cfg)]
@@ -93,16 +69,18 @@ class OficioTools:
             auto_index += sum(1 for request in requests if not request.get("has_explicit_id"))
             pending.extend(requests)
 
-        return tool_result({
-            "success": True,
-            "path": requested_path or paths[0],
-            "pending": pending,
-            "count": len(pending),
-            "scanned": paths,
-            "errors": errors or None,
-        })
+        return tool_result(
+            {
+                "success": True,
+                "path": requested_path or paths[0],
+                "pending": pending,
+                "count": len(pending),
+                "scanned": paths,
+                "errors": errors or None,
+            }
+        )
 
-    def read(self, args: JsonDict, **kw: Any) -> str:
+    def read(self, args: JsonDict) -> str:
         path = self._string(args, "path")
         if not path:
             return tool_error("path is required")
@@ -114,13 +92,12 @@ class OficioTools:
         except Exception as exc:
             return tool_error(f"oficio_read failed: {exc}")
 
-    def today(self, args: JsonDict, **kw: Any) -> str:
+    def today(self, args: JsonDict) -> str:
         return tool_result({"success": True, "daily_path": resolve_daily_path(load_config())})
 
-    def start(self, args: JsonDict, **kw: Any) -> str:
+    def start(self, args: JsonDict) -> str:
         return self._update_request(
             args,
-            kw,
             action_name="oficio_start",
             update=lambda text, request: mark_request_in_progress(
                 text,
@@ -130,10 +107,9 @@ class OficioTools:
             ),
         )
 
-    def complete(self, args: JsonDict, **kw: Any) -> str:
+    def complete(self, args: JsonDict) -> str:
         return self._update_request(
             args,
-            kw,
             required_field="note",
             action_name="oficio_complete",
             update=lambda text, request: mark_request_completed(
@@ -146,10 +122,9 @@ class OficioTools:
             ),
         )
 
-    def fail(self, args: JsonDict, **kw: Any) -> str:
+    def fail(self, args: JsonDict) -> str:
         return self._update_request(
             args,
-            kw,
             required_field="error",
             action_name="oficio_fail",
             update=lambda text, request: mark_request_failed(
@@ -161,7 +136,7 @@ class OficioTools:
             ),
         )
 
-    def replace(self, args: JsonDict, **kw: Any) -> str:
+    def replace(self, args: JsonDict) -> str:
         path = self._string(args, "path")
         old = str(args.get("old") or "")
         new = str(args.get("new") or "")
@@ -176,44 +151,9 @@ class OficioTools:
         except Exception as exc:
             return tool_error(f"oficio_replace failed: {exc}")
 
-    def slash(self, raw_args: str) -> str:
-        argv = raw_args.strip().split()
-        command = argv[0] if argv else "scan"
-
-        if command in {"config", "status"}:
-            return self.config({})
-        if command == "scan":
-            return self.scan({"path": argv[1]} if len(argv) > 1 else {})
-        if command == "today":
-            return self.today({})
-        if command == "start" and len(argv) >= 2:
-            return self.start({"id": argv[1], "line": self._optional_int(argv[2]) if len(argv) > 2 else None})
-        if command == "complete" and len(argv) >= 3:
-            return self.complete({"id": argv[1], "note": " ".join(argv[2:])})
-        if command == "fail" and len(argv) >= 3:
-            return self.fail({"id": argv[1], "error": " ".join(argv[2:])})
-
-        return (
-            "Usage: /oficio "
-            "[scan [path]|config|status|today|start <id> [line]|complete <id> <note...>|fail <id> <error...>]"
-        )
-
-    def tool_specs(self) -> list[ToolSpec]:
-        return [
-            ToolSpec("oficio_config_show", CONFIG_SCHEMA, self.config),
-            ToolSpec("oficio_scan", SCAN_SCHEMA, self.scan),
-            ToolSpec("oficio_read", READ_SCHEMA, self.read),
-            ToolSpec("oficio_start", START_SCHEMA, self.start),
-            ToolSpec("oficio_complete", COMPLETE_SCHEMA, self.complete),
-            ToolSpec("oficio_fail", FAIL_SCHEMA, self.fail),
-            ToolSpec("oficio_replace", REPLACE_SCHEMA, self.replace),
-            ToolSpec("oficio_today", TODAY_SCHEMA, self.today),
-        ]
-
     def _update_request(
         self,
         args: JsonDict,
-        kw: Mapping[str, Any],
         *,
         action_name: str,
         update: Callable[[str, RequestUpdate], str],
@@ -221,7 +161,7 @@ class OficioTools:
     ) -> str:
         try:
             cfg = load_config()
-            request = self._request_update(args, kw, cfg, required_field)
+            request = self._request_update(args, cfg, required_field)
             source = self._read_note(cfg, request.path)
             try:
                 updated = update(source, request)
@@ -235,13 +175,7 @@ class OficioTools:
         except Exception as exc:
             return tool_error(f"{action_name} failed: {exc}")
 
-    def _request_update(
-        self,
-        args: JsonDict,
-        kw: Mapping[str, Any],
-        cfg: JsonDict,
-        required_field: str | None,
-    ) -> RequestUpdate:
+    def _request_update(self, args: JsonDict, cfg: JsonDict, required_field: str | None) -> RequestUpdate:
         request_id = self._string(args, "id")
         if not request_id:
             raise ValueError("id is required")
@@ -250,7 +184,7 @@ class OficioTools:
             id=request_id,
             path=self._string(args, "path") or resolve_daily_path(cfg),
             line=self._optional_int(args.get("line")),
-            session_id=self._session_id(args, kw),
+            session_id=self._string(args, "session_id") or current_session_id(),
             note=self._string(args, "note"),
             error=self._string(args, "error"),
             response=self._string(args, "response"),
@@ -267,20 +201,17 @@ class OficioTools:
         except (OSError, RuntimeError, ValueError):
             target = vault_abspath(cfg, path)
             if not target.exists():
-                raise FileNotFoundError(f"note not found: {path}")
+                raise FileNotFoundError(f"note not found: {path}") from None
             return target.read_text()
 
     def _highest_auto_id(self, paths: list[str], cfg: JsonDict) -> int:
         highest = 0
         for path in paths:
             try:
-                highest = max(highest, _find_max_auto_id(self._read_note(cfg, path)))
+                highest = max(highest, find_max_auto_id(self._read_note(cfg, path)))
             except (OSError, RuntimeError, ValueError):
                 continue
         return highest
-
-    def _session_id(self, args: JsonDict, kw: Mapping[str, Any]) -> str:
-        return self._string(args, "session_id") or self._string(kw, "session_id") or _get_current_session_id()
 
     def _string(self, args: Mapping[str, Any], key: str) -> str:
         return str(args.get(key) or "").strip()

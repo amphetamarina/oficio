@@ -4,7 +4,7 @@
     "version": "0.3.0",
     "description": "Watch daily notes for @agent requests and trigger your coding agent automatically.",
     "minAppVersion": "1.0.0",
-    "author": "Marina Cabrera",
+    "author": "Marina Rosa",
     "authorUrl": "https://github.com/amphetamarina/oficio",
     "isDesktopOnly": true
 }

@@ -1,16 +1,42 @@
 name: publish
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+    paths: [pyproject.toml]
   workflow_dispatch:
 
 permissions:
-  id-token: write   # PEP 740 OIDC — needed for PyPI Trusted Publishing + Sigstore
-  contents: read
+  id-token: write   # OIDC for PyPI Trusted Publishing + Sigstore
+  contents: write   # creating a git tag on successful publish
 
 jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      changed: ${{ steps.read.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - id: read
+        run: |
+          version=$(grep -E '^version *= *"' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          previous=$(git show HEAD~1:pyproject.toml 2>/dev/null | grep -E '^version *= *"' | head -1 | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$version" != "$previous" ] && [ -n "$version" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version bumped: $previous -> $version"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "version unchanged ($version) — skipping publish"
+          fi
+
   publish:
+    needs: detect
+    if: needs.detect.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -18,8 +44,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
+
+      - name: Verify package version matches __init__
+        run: |
+          pyproject=$(grep -E '^version *= *"' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          init=$(grep -E '__version__ *= *"' src/oficio/__init__.py | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ "$pyproject" != "$init" ]; then
+            echo "::error::version mismatch: pyproject=$pyproject, __init__=$init"
+            exit 1
+          fi
+
       - run: uv build
+
       - uses: pypa/gh-action-pypi-publish@release/v1
         # OIDC + Sigstore attestations automatic — no API token needed
         with:
           attestations: true
+
+      - name: Tag the release
+        env:
+          VERSION: ${{ needs.detect.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "v$VERSION"
+          git push origin "v$VERSION"

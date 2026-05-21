@@ -1,4 +1,7 @@
 # ofício
+  [![PyPI version](https://img.shields.io/pypi/v/oficio.svg)](https://pypi.org/project/oficio/)
+  [![Python versions](https://img.shields.io/pypi/pyversions/oficio.svg)](https://pypi.org/project/oficio/)
+  [![License](https://img.shields.io/pypi/l/oficio.svg)](https://github.com/marinaleitecabrera/oficio/blob/main/LICENSE)
 
 Write `- [ ] @agent <request>` in today's Obsidian daily note. Your coding
 agent answers in place. That's it.
